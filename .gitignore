@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Kaggle competition data (re-downloadable via `uv run kaggle competitions download ...`)
+nvidia-nemotron-model-reasoning-challenge.zip
+train.csv
+test.csv
