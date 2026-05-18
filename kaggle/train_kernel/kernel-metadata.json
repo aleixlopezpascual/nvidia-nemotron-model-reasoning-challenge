@@ -1,0 +1,21 @@
+{
+  "id": "aleixlopez/nemotron-sft-training",
+  "title": "Nemotron SFT Training",
+  "code_file": "notebook.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "aleixlopez/nemotron-code",
+    "kienngx/nemotron-30b-competition-trainingdata-cot-labels"
+  ],
+  "competition_sources": [
+    "nvidia-nemotron-model-reasoning-challenge"
+  ],
+  "kernel_sources": [],
+  "model_sources": [
+    "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default"
+  ]
+}
