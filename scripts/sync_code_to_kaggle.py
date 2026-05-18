@@ -28,12 +28,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STAGING_DIR = REPO_ROOT / "kaggle" / "code_dataset"
 
-# What goes into the tarball. Paths are repo-relative.
-BUNDLED_PATHS = [
-    "nemotron_local_cv",
-    "nemotron_train",
-    "data/val_split_600.csv",
-    "kaggle/blackwell_setup.py",
+# What goes into the tarball. `arcname` is the path inside the bundle —
+# Kaggle auto-extracts uploads so it ends up as `/kaggle/input/<dataset>/<arcname>`.
+# blackwell_setup.py is re-arcnamed to root so it can't clash with Kaggle's own
+# `kaggle` CLI package on sys.path.
+BUNDLED_PATHS: list[tuple[str, str]] = [
+    ("nemotron_local_cv", "nemotron_local_cv"),
+    ("nemotron_train", "nemotron_train"),
+    ("data/val_split_600.csv", "data/val_split_600.csv"),
+    ("kaggle/blackwell_setup.py", "blackwell_setup.py"),
 ]
 
 
@@ -42,12 +45,12 @@ def build_tarball(out_path: Path) -> None:
     if out_path.exists():
         out_path.unlink()
     with tarfile.open(out_path, "w:gz") as tar:
-        for rel in BUNDLED_PATHS:
+        for rel, arc in BUNDLED_PATHS:
             src = REPO_ROOT / rel
             if not src.exists():
                 sys.exit(f"missing bundled path: {src}")
-            print(f"  + {rel}")
-            tar.add(src, arcname=rel, filter=_filter_junk)
+            print(f"  + {rel}  ->  {arc}")
+            tar.add(src, arcname=arc, filter=_filter_junk)
     size_mb = out_path.stat().st_size / 1024 / 1024
     print(f"built {out_path.name} ({size_mb:.2f} MB)")
 
@@ -71,34 +74,40 @@ def write_metadata(staging: Path, slug: str) -> None:
     (staging / "dataset-metadata.json").write_text(json.dumps(meta, indent=2) + "\n")
 
 
-def push(staging: Path, message: str) -> None:
-    """Try `version` first; if dataset doesn't exist yet, fall back to `create`."""
+def _dataset_exists(slug: str) -> bool:
+    """Probe whether a dataset is already published. `status` errors out if missing."""
+    r = subprocess.run(
+        ["uv", "run", "kaggle", "datasets", "status", slug],
+        capture_output=True, text=True,
+    )
+    return r.returncode == 0 and "ready" in (r.stdout or "").lower()
+
+
+def push(staging: Path, slug: str, message: str) -> None:
+    """Use `version` if dataset exists, else `create`. Probe-first avoids the
+    kaggle CLI's habit of returning exit 0 on dataset-already-exists conflicts."""
     base_args = ["uv", "run", "kaggle", "datasets"]
-    version_cmd = [*base_args, "version", "-p", str(staging), "-m", message, "--dir-mode", "skip"]
-    print("\n$", " ".join(version_cmd))
-    r = subprocess.run(version_cmd, capture_output=True, text=True)
-    if r.returncode == 0:
-        print(r.stdout)
-        return
-    out = (r.stdout or "") + (r.stderr or "")
-    if "404" in out or "Not Found" in out or "could not be found" in out.lower():
-        print("dataset does not exist yet — creating it")
-        create_cmd = [*base_args, "create", "-p", str(staging), "--dir-mode", "skip"]
-        print("$", " ".join(create_cmd))
-        r2 = subprocess.run(create_cmd, capture_output=True, text=True)
-        print(r2.stdout)
-        if r2.returncode != 0:
-            sys.exit(r2.stderr or "kaggle datasets create failed")
-        return
-    print(out, file=sys.stderr)
-    sys.exit(f"kaggle datasets version failed (exit {r.returncode})")
+    if _dataset_exists(slug):
+        cmd = [*base_args, "version", "-p", str(staging), "-m", message, "--dir-mode", "skip"]
+        action = "version"
+    else:
+        cmd = [*base_args, "create", "-p", str(staging), "--dir-mode", "skip"]
+        action = "create"
+
+    print(f"\n$ {' '.join(cmd)}")
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    out = (r.stdout or "") + "\n" + (r.stderr or "")
+    # The kaggle CLI swallows real errors as exit 0, so also scan the output.
+    if r.returncode != 0 or "error" in out.lower() and "creation error" in out.lower():
+        sys.exit(out + f"\nkaggle datasets {action} failed (exit {r.returncode})")
+    print(r.stdout)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--slug", default="aleixlopez/nemotron-code",
                     help="Kaggle dataset slug (owner/name)")
-    ap.add_argument("--message", default="sync from laptop",
+    ap.add_argument("-m", "--message", default="sync from laptop",
                     help="Version note for the new dataset version")
     ap.add_argument("--no-push", action="store_true",
                     help="Build staging dir + tarball but don't run kaggle datasets push")
@@ -118,7 +127,7 @@ def main() -> int:
         print("\n--no-push set; skipping kaggle CLI")
         return 0
 
-    push(STAGING_DIR, args.message)
+    push(STAGING_DIR, args.slug, args.message)
     print(f"\nDataset {args.slug} ready. Attach it in Kaggle notebooks at /kaggle/input/{args.slug.split('/', 1)[1]}/")
     return 0
 

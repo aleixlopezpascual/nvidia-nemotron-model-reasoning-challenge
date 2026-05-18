@@ -20,8 +20,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 KAGGLE_USER = "aleixlopez"
 CODE_DATASET = f"{KAGGLE_USER}/nemotron-code"
 
-# Base model published by the host. Kagglehub path used by every public notebook.
-BASE_MODEL_HANDLE = "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default"
+# Base model published by the host. Pinned to version 1 (the only one as of 2026-05-18).
+# Kagglehub uses the un-versioned slug below; kernel-metadata.json needs the versioned one.
+BASE_MODEL_HANDLE = "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1"
+BASE_MODEL_KAGGLEHUB = "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default"
 
 # ----------------------------------------------------------------------------
 # Reusable cell snippets
@@ -32,37 +34,46 @@ CELL_ENV_BEFORE_TORCH = '''\
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# Untar our code bundle into /kaggle/working so the package layout is preserved.
-import subprocess, sys
-subprocess.run(
-    ["tar", "xzf", f"/kaggle/input/nemotron-code/nemotron-code.tar.gz", "-C", "/kaggle/working"],
-    check=True,
-)
-sys.path.insert(0, "/kaggle/working")
+# Glob-discover instead of hardcoding — Kaggle's path conventions vary
+# (`/kaggle/input/datasets/<owner>/<slug>/` for our newer dataset,
+#  `/kaggle/input/<slug>/` for older public ones).
+import glob, sys
+matches = glob.glob("/kaggle/input/**/blackwell_setup.py", recursive=True)
+assert matches, "code dataset not attached (no blackwell_setup.py found under /kaggle/input)"
+CODE_ROOT = os.path.dirname(matches[0])
+print(f"CODE_ROOT = {CODE_ROOT}")
+sys.path.insert(0, CODE_ROOT)
 
-# Sanity: our packages import.
 import nemotron_local_cv  # noqa: F401
 import nemotron_train  # noqa: F401
 print("nemotron_local_cv + nemotron_train imported.")
 '''
 
 CELL_BLACKWELL_PREMODEL = '''\
-# Apply pre-model-load Blackwell env. (post-load patches happen after model load.)
-from kaggle.blackwell_setup import set_cuda_alloc_env, set_blackwell_ptxas_env  # noqa: E402
+# Pre-model-load Blackwell setup. The mamba_ssm stub MUST be installed before
+# AutoModelForCausalLM.from_pretrained loads modeling_nemotron_h.py.
+from blackwell_setup import (  # noqa: E402
+    set_cuda_alloc_env,
+    set_blackwell_ptxas_env,
+    install_mamba_ssm_stub,
+)
 set_cuda_alloc_env()
 set_blackwell_ptxas_env()
-print("CUDA alloc env + Blackwell ptxas env set.")
+install_mamba_ssm_stub()
+print("CUDA alloc env + Blackwell ptxas env + mamba_ssm stub ready.")
 '''
 
 CELL_RESOLVE_PATHS = '''\
-import kagglehub
 from pathlib import Path
 
-BASE_MODEL_PATH = Path(kagglehub.model_download("metric/nemotron-3-nano-30b-a3b-bf16/transformers/default"))
+# Use the kernel-metadata.json-attached mount directly (faster than kagglehub.download).
+BASE_MODEL_PATH = Path("/kaggle/input/models/metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1")
+assert BASE_MODEL_PATH.is_dir(), f"base model not mounted at {BASE_MODEL_PATH}"
 print(f"BASE_MODEL_PATH: {BASE_MODEL_PATH}")
+print("  files:", sorted(p.name for p in BASE_MODEL_PATH.iterdir())[:6], "...")
 
-DATA_DIR = Path("/kaggle/working/data")
-VAL_SPLIT = DATA_DIR / "val_split_600.csv"
+# val_split_600.csv ships inside the code dataset (see scripts/sync_code_to_kaggle.py).
+VAL_SPLIT = Path(CODE_ROOT) / "data" / "val_split_600.csv"
 assert VAL_SPLIT.exists(), VAL_SPLIT
 '''
 
@@ -71,15 +82,41 @@ assert VAL_SPLIT.exists(), VAL_SPLIT
 # ----------------------------------------------------------------------------
 
 TRAIN_CELL_DEPS = '''\
-# Training-only deps. Kaggle's base image ships torch + transformers + datasets;
-# we add the exact trl/peft/accelerate versions that match our recipe.
-import subprocess, sys
-deps = [
-    "trl>=0.12,<0.18",
-    "peft>=0.13,<0.16",
-    "accelerate>=1.0",
-]
-subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *deps])
+# Training-only deps installed from the public offline-packages dataset
+# (`dennisfong/nvidia-nemotron-offline-packages`). Kaggle's base image already
+# ships torch + transformers + datasets; we add trl/peft/accelerate for SFT.
+# Internet must be OFF for competition compliance, so `--no-index --find-links`
+# is mandatory.
+
+import glob, os, subprocess, sys
+
+# Walk /kaggle/input one level deep to surface what's actually attached.
+print("== /kaggle/input layout ==")
+for d in sorted(os.listdir("/kaggle/input")):
+    sub = f"/kaggle/input/{d}"
+    print(f"  {d}/")
+    try:
+        for f in sorted(os.listdir(sub))[:6]:
+            print(f"    {f}/" if os.path.isdir(f"{sub}/{f}") else f"    {f}")
+    except Exception as e:
+        print(f"    <err: {e}>")
+
+# Discover offline-packages dir by searching for a known-present wheel.
+matches = glob.glob("/kaggle/input/**/offline_packages", recursive=True)
+if not matches:
+    # Some datasets mount the wheels at the dataset root, not a subdir.
+    wheels = glob.glob("/kaggle/input/**/trl-*.whl", recursive=True)
+    assert wheels, "no offline_packages dir AND no trl-*.whl wheel found"
+    OFFLINE_DIR = os.path.dirname(wheels[0])
+else:
+    OFFLINE_DIR = matches[0]
+print(f"\\nOFFLINE_DIR = {OFFLINE_DIR}")
+subprocess.check_call([
+    sys.executable, "-m", "pip", "install", "-q",
+    "--no-index", "--find-links", OFFLINE_DIR,
+    "trl", "peft", "accelerate",
+])
+print("trl + peft + accelerate installed from offline packages.")
 '''
 
 TRAIN_CELL_CORPUS = '''\
@@ -97,16 +134,16 @@ OUTPUT_DIR = Path("/kaggle/working/adapter")
 OUTPUT_DIR.mkdir(exist_ok=True)
 '''
 
-TRAIN_CELL_RUN = '''\
-# Smoke run first; flip --sample-n / --max-steps for the full run.
+TRAIN_CELL_RUN_TEMPLATE = '''\
+# {label} run. Flip sample_n=None + max_steps=-1 for full corpus / ~1 epoch.
 from nemotron_train import train
 
 train(
     data_csv=str(CORPUS_PATH),
     output_dir=str(OUTPUT_DIR),
     base_model=str(BASE_MODEL_PATH),
-    sample_n=200,        # bump to None for full corpus
-    max_steps=50,        # bump to -1 for epochs-driven full run (~1000 steps)
+    sample_n={sample_n},        # rows to subsample from the corpus
+    max_steps={max_steps},      # cap on optimizer steps (-1 = epochs-driven)
 )
 '''
 
@@ -135,14 +172,20 @@ print(f"wrote {ZIP_PATH} ({ZIP_PATH.stat().st_size / 1024 / 1024:.2f} MB)")
 # ----------------------------------------------------------------------------
 
 CV_CELL_DEPS = '''\
-# vLLM + peft for inference. Kaggle's image may already have a compatible
-# vllm — we pin the minimum that supports Nemotron MoE+Mamba LoRA loading.
-import subprocess, sys
-deps = [
-    "vllm>=0.6.3",
-    "peft>=0.13,<0.16",
-]
-subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *deps])
+# peft for adapter loading. vLLM is already in Kaggle's base image (the host
+# metric kernel uses it directly). Internet must be OFF for competition
+# compliance, so `--no-index --find-links` is mandatory.
+import glob, subprocess, sys
+matches = glob.glob("/kaggle/input/**/offline_packages", recursive=True)
+assert matches, "offline_packages dir not found under /kaggle/input"
+OFFLINE_DIR = matches[0]
+print(f"OFFLINE_DIR = {OFFLINE_DIR}")
+subprocess.check_call([
+    sys.executable, "-m", "pip", "install", "-q",
+    "--no-index", "--find-links", OFFLINE_DIR,
+    "peft",
+])
+print("peft installed from offline packages.")
 '''
 
 CV_CELL_LOCATE_ADAPTER = '''\
@@ -267,14 +310,22 @@ def _kernel_metadata(slug: str, title: str, internet: bool, dataset_sources: lis
     }
 
 
-def build_train_kernel(out_dir: Path) -> None:
+OFFLINE_PACKAGES_DATASET = "dennisfong/nvidia-nemotron-offline-packages"
+
+
+def build_train_kernel(out_dir: Path, sample_n: int | None, max_steps: int, label: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
+    train_cell_run = TRAIN_CELL_RUN_TEMPLATE.format(
+        label=label,
+        sample_n="None" if sample_n is None else sample_n,
+        max_steps=max_steps,
+    )
     cells = [
         _markdown(
-            "# Nemotron SFT Training (Kaggle / RTX PRO 6000)\n\n"
+            f"# Nemotron SFT Training (Kaggle / RTX PRO 6000) — {label}\n\n"
             "Runs the convergent public 0.85 SFT recipe + `completion_only_loss=True`. "
-            "Defaults to a **smoke run** (200 rows, 50 steps) — bump `sample_n` to `None` and "
-            "`max_steps` to `-1` for a full ~1-epoch run on the kienngx CoT corpus.\n\n"
+            f"Current configuration: `sample_n={sample_n}`, `max_steps={max_steps}`. "
+            "Edit `scripts/build_kaggle_notebooks.py` and re-run with different flags to change.\n\n"
             "Data sources required: this code dataset (`aleixlopez/nemotron-code`), the base "
             "model (`metric/nemotron-3-nano-30b-a3b-bf16/transformers/default`), and the "
             "kienngx CoT corpus (`kienngx/nemotron-30b-competition-trainingdata-cot-labels`)."
@@ -284,16 +335,20 @@ def build_train_kernel(out_dir: Path) -> None:
         _code(TRAIN_CELL_DEPS),
         _code(CELL_RESOLVE_PATHS),
         _code(TRAIN_CELL_CORPUS),
-        _code(TRAIN_CELL_RUN),
+        _code(train_cell_run),
         _code(TRAIN_CELL_SUBMIT_ZIP),
     ]
-    (out_dir / "notebook.ipynb").write_text(json.dumps(_notebook(cells, internet=True), indent=1))
+    (out_dir / "notebook.ipynb").write_text(json.dumps(_notebook(cells, internet=False), indent=1))
     (out_dir / "kernel-metadata.json").write_text(json.dumps(
         _kernel_metadata(
             slug=f"{KAGGLE_USER}/nemotron-sft-training",
             title="Nemotron SFT Training",
-            internet=True,
-            dataset_sources=[CODE_DATASET, "kienngx/nemotron-30b-competition-trainingdata-cot-labels"],
+            internet=False,
+            dataset_sources=[
+                CODE_DATASET,
+                "kienngx/nemotron-30b-competition-trainingdata-cot-labels",
+                OFFLINE_PACKAGES_DATASET,
+            ],
             competition_sources=["nvidia-nemotron-model-reasoning-challenge"],
         ),
         indent=2,
@@ -319,13 +374,13 @@ def build_cv_kernel(out_dir: Path) -> None:
         _code(CV_CELL_RUN),
         _code(CV_CELL_PER_LABEL),
     ]
-    (out_dir / "notebook.ipynb").write_text(json.dumps(_notebook(cells, internet=True), indent=1))
+    (out_dir / "notebook.ipynb").write_text(json.dumps(_notebook(cells, internet=False), indent=1))
     (out_dir / "kernel-metadata.json").write_text(json.dumps(
         _kernel_metadata(
             slug=f"{KAGGLE_USER}/nemotron-local-cv",
             title="Nemotron Local CV",
-            internet=True,
-            dataset_sources=[CODE_DATASET],
+            internet=False,
+            dataset_sources=[CODE_DATASET, OFFLINE_PACKAGES_DATASET],
             competition_sources=["nvidia-nemotron-model-reasoning-challenge"],
         ),
         indent=2,
@@ -333,8 +388,22 @@ def build_cv_kernel(out_dir: Path) -> None:
     print(f"built {out_dir}/notebook.ipynb + kernel-metadata.json")
 
 
+SMOKE_PROFILES = {
+    "tiny":  {"sample_n": 20,   "max_steps": 5,    "label": "tiny smoke"},
+    "smoke": {"sample_n": 200,  "max_steps": 50,   "label": "smoke"},
+    "full":  {"sample_n": None, "max_steps": -1,   "label": "full"},
+}
+
+
 def main() -> int:
-    build_train_kernel(REPO_ROOT / "kaggle" / "train_kernel")
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--profile", choices=list(SMOKE_PROFILES), default="smoke",
+                    help="Training run size: tiny (20 rows / 5 steps), smoke (200/50), full (epochs-driven)")
+    args = ap.parse_args()
+    p = SMOKE_PROFILES[args.profile]
+    print(f"profile: {args.profile} → sample_n={p['sample_n']}, max_steps={p['max_steps']}")
+    build_train_kernel(REPO_ROOT / "kaggle" / "train_kernel", **p)
     build_cv_kernel(REPO_ROOT / "kaggle" / "cv_kernel")
     return 0
 

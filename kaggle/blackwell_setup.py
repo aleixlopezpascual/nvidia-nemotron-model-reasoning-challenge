@@ -28,30 +28,82 @@ def set_cuda_alloc_env() -> None:
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
-def patch_rmsnorm_with_pure_pytorch() -> int:
-    """Replace any module-level `rmsnorm_fn` with a pure-PyTorch implementation.
-
-    The Triton-backed rmsnorm in modeling_nemotron_h crashes on Blackwell. The
-    pure-PyTorch fallback is slower but numerically equivalent (the upcast/dtype
-    path matches the original). Returns the number of modules patched.
-    """
+def _pure_rmsnorm_fn(x, weight, bias=None, z=None, eps=1e-5,
+                     group_size=None, norm_before_gate=True, upcast=True):
+    """Pure-PyTorch rmsnorm_fn — same math the mamba_ssm.triton kernel does."""
     import torch
     import torch.nn.functional as F
+    dtype = x.dtype
+    if upcast:
+        x = x.float()
+    variance = x.pow(2).mean(-1, keepdim=True)
+    x_normed = x * torch.rsqrt(variance + eps)
+    out = x_normed * weight.float()
+    if bias is not None:
+        out = out + bias.float()
+    if z is not None:
+        out = out * F.silu(z.float())
+    return out.to(dtype)
 
-    def _pure_rmsnorm_fn(x, weight, bias=None, z=None, eps=1e-5,
-                         group_size=None, norm_before_gate=True, upcast=True):
-        dtype = x.dtype
-        if upcast:
-            x = x.float()
-        variance = x.pow(2).mean(-1, keepdim=True)
-        x_normed = x * torch.rsqrt(variance + eps)
-        out = x_normed * weight.float()
-        if bias is not None:
-            out = out + bias.float()
-        if z is not None:
-            out = out * F.silu(z.float())
-        return out.to(dtype)
 
+def install_mamba_ssm_stub() -> None:
+    """Pre-install a fake `mamba_ssm` module BEFORE the Nemotron-H modeling code
+    is loaded. The modeling code does `from mamba_ssm.ops.triton.layernorm_gated
+    import rmsnorm_fn` at import time and re-raises ImportError if it fails.
+
+    Each stub module gets a real `ModuleSpec` so `importlib.util.find_spec`
+    doesn't choke (otherwise `transformers.is_mamba_2_ssm_available` raises
+    `ValueError: mamba_ssm.__spec__ is None`).
+
+    We deliberately do NOT set `__version__` on the stub — that makes
+    `transformers._is_package_available` flip `package_exists` back to False
+    via its fallback path, so `is_mamba_2_ssm_available()` returns False and
+    the heavy fast-path imports are skipped.
+
+    Must run BEFORE the first `AutoModelForCausalLM.from_pretrained(...)` call.
+    """
+    import importlib.machinery
+    import types
+
+    # If real mamba_ssm is already loaded (e.g. attached from an offline-packages
+    # dataset), defer to it — don't shadow a working install.
+    if "mamba_ssm" in sys.modules:
+        return
+
+    def _stub_pkg(name: str, is_package: bool) -> types.ModuleType:
+        mod = types.ModuleType(name)
+        spec = importlib.machinery.ModuleSpec(name, loader=None, is_package=is_package)
+        mod.__spec__ = spec
+        mod.__loader__ = None
+        if is_package:
+            mod.__path__ = []
+        return mod
+
+    pkg = _stub_pkg("mamba_ssm", is_package=True)
+    # Mark a too-old version so `transformers.is_mamba_2_ssm_available()` returns
+    # False (it requires >= 2.0.4). With "N/A" the version.parse call raises;
+    # with a real version string < 2.0.4 the comparison short-circuits cleanly
+    # and the fast-path imports are skipped entirely.
+    pkg.__version__ = "0.0.0"
+
+    ops = _stub_pkg("mamba_ssm.ops", is_package=True)
+    triton_pkg = _stub_pkg("mamba_ssm.ops.triton", is_package=True)
+    layernorm = _stub_pkg("mamba_ssm.ops.triton.layernorm_gated", is_package=False)
+    layernorm.rmsnorm_fn = _pure_rmsnorm_fn
+
+    sys.modules.update({
+        "mamba_ssm": pkg,
+        "mamba_ssm.ops": ops,
+        "mamba_ssm.ops.triton": triton_pkg,
+        "mamba_ssm.ops.triton.layernorm_gated": layernorm,
+    })
+
+
+def patch_rmsnorm_with_pure_pytorch() -> int:
+    """Defensive post-load patch: replace any module-level `rmsnorm_fn` with our
+    pure-PyTorch impl. Used in case some modeling sub-module captured a stale
+    reference before `install_mamba_ssm_stub` ran. Returns # modules patched.
+    """
     patched = 0
     for name, mod in list(sys.modules.items()):
         if hasattr(mod, "rmsnorm_fn"):
