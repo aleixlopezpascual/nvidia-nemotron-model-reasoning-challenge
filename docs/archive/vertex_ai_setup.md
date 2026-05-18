@@ -1,4 +1,12 @@
-# Vertex AI Setup Guide
+# Vertex AI Setup Guide — DEPRECATED 2026-05-18
+
+> **Superseded.** We do not use Vertex AI. The available GCP project (`global-mlp-stg-2182`) had no `NVIDIA_A100_80GB_GPUS` or H100 quota and no path to request more, and 40GB single-device cannot hold the 30B bf16 base (~60GB weights). We switched to Kaggle Notebooks with the RTX PRO 6000 Blackwell accelerator (96 GB VRAM, single device, free within Kaggle's GPU quota, native parity with the host eval kernel).
+>
+> Active guide: [`docs/kaggle_workflow.md`](../kaggle_workflow.md).
+>
+> The content below is preserved only as a record of the discarded plan.
+
+---
 
 End-to-end recipe for running the training + local-CV pipeline on a Vertex AI Workbench Instance. Assumes you already have a GCP project with Vertex AI enabled.
 

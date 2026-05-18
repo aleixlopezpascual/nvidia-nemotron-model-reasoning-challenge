@@ -42,7 +42,7 @@ Note: this Kaggle CLI version uses `-s/--show` for the leaderboard, **not** `--v
 ## Architecture
 
 ```
-nemotron_local_cv/       # Local CV harness (laptop-buildable, runs on GPU host)
+nemotron_local_cv/       # Host-metric mirror + CV CLI (laptop-buildable, runs on any GPU)
   host_metric.py         # VERBATIM mirror of metric/nvidia-nemotron-metric (host kernel)
                          # - extract_final_answer (updated 2026-05-18 — handles nested braces)
                          # - verify (binary-string bypass + rel_tol=1e-2 numeric)
@@ -52,20 +52,39 @@ nemotron_local_cv/       # Local CV harness (laptop-buildable, runs on GPU host)
   splits.py              # build_stratified_val_split(n=600, seed=42)
   __main__.py            # CLI: python -m nemotron_local_cv --adapter ... --val ...
 
+nemotron_train/          # SFT pipeline (convergent public 0.85 recipe + completion_only_loss)
+  recipe.py              # LoRA + training defaults (rank 32, lr 2e-4, eff batch 32, bf16)
+  data.py                # CoT corpus loader + chat-template formatter (uses BOXED_INSTRUCTION)
+  trainer.py             # train(...) — loads base bf16, attaches LoRA, runs TRL SFTTrainer
+  __main__.py            # CLI: python -m nemotron_train --data ... --output ...
+
+kaggle/                  # Kaggle-Notebook entry points (RTX PRO 6000 Blackwell, 96GB)
+  blackwell_setup.py     # rmsnorm + fast-path + ptxas patches (load-bearing on Blackwell)
+  train_kernel/          # Generated kernel: SFT training notebook + kernel-metadata.json
+  cv_kernel/             # Generated kernel: local CV notebook + kernel-metadata.json
+
+tests/                   # pytest suite (90 tests, ~0.5s) for the host-metric mirror,
+                         # label classifier, val split, CLI roundtrip, SFT data formatter
+
 scripts/
-  download_top_notebooks.py     # round-1 notebook scrape by votes
-  download_specific_notebooks.py # round-2 hand-picked refs
   build_val_split.py            # writes data/val_split_600.csv (checked in)
+  download_top_notebooks.py     # round-1 notebook scrape
+  download_specific_notebooks.py # round-2 hand-picked refs
+  download_training_corpus.py   # pulls kienngx CoT corpus
+  sync_code_to_kaggle.py        # packages code as private Kaggle Dataset
+  build_kaggle_notebooks.py     # emits kaggle/train_kernel + kaggle/cv_kernel from Py source
 
 data/
   val_split_600.csv      # 600-row stratified val (100 per puzzle type, seed=42)
 
 docs/
+  kaggle_workflow.md            # READ FIRST for the train/CV/submit loop
   rules_compliance.md           # what compute/data/models are allowed
-  notebook_learnings/00_SYNTHESIS.md  # READ FIRST — strategic synthesis
+  notebook_learnings/00_SYNTHESIS.md  # strategic synthesis of public landscape
   notebook_learnings/01..09_*.md      # per-theme deep dives
+  archive/vertex_ai_setup.md    # deprecated — see Compute split below
 
-notebooks/                # downloaded public Kaggle notebooks (gitignored if added)
+notebooks/                # downloaded public Kaggle notebooks (gitignored)
 notebooks/_host_metric/   # host metric kernel (source of truth for local CV)
 ```
 
@@ -74,4 +93,9 @@ notebooks/_host_metric/   # host metric kernel (source of truth for local CV)
 - vLLM, greedy (`temperature=0.0`, `top_p=1.0`), `max_model_len=8192`, `max_tokens=7680`. Answer extracted from `\boxed{...}`.
 - Eval prompt appends the boxed-instruction suffix (with **backticks**) to every user message before `apply_chat_template(..., enable_thinking=True)`. **Training prompts must match this exactly** — `nemotron_local_cv.host_metric.BOXED_INSTRUCTION` is the source of truth.
 
-**Compute split**: laptop builds and verifies code; GPU work (running the 30B base + LoRA in vLLM, training, teacher-CoT generation) runs on Vertex AI. The base model is too large for this laptop.
+**Compute split**: laptop builds, edits, and verifies code (90-test pytest suite runs in <1s). All GPU work — SFT training, local CV via vLLM, teacher-CoT generation — runs on **Kaggle Notebooks with the RTX PRO 6000 Blackwell** accelerator (96 GB VRAM, free within Kaggle's GPU quota, native parity with the host eval kernel). See `docs/kaggle_workflow.md`. We do NOT use Vertex AI (GCP project had no 80GB quota; see `docs/archive/vertex_ai_setup.md` for the dead-end history).
+
+**Kaggle workflow in one line per step**:
+1. Edit local code → 2. `uv run python scripts/sync_code_to_kaggle.py -m "..."` → 3. `uv run python scripts/build_kaggle_notebooks.py` → 4. `uv run kaggle kernels push -p kaggle/train_kernel` → 5. Run notebook on Kaggle → 6. `... push -p kaggle/cv_kernel` → 7. Run CV → 8. Submit from training kernel's output via Kaggle UI.
+
+**Tests**: `uv run pytest -q` runs the full 90-test suite (no GPU, ~0.5s). Always run after touching `nemotron_local_cv/` or `nemotron_train/`.
