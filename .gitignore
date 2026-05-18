@@ -221,3 +221,11 @@ __marimo__/
 nvidia-nemotron-model-reasoning-challenge.zip
 train.csv
 test.csv
+
+# Downloaded public Kaggle notebooks (re-downloadable via scripts/download_top_notebooks.py
+# and scripts/download_specific_notebooks.py — not our work, can grow unbounded)
+notebooks/
+
+# Local CV debug artifacts
+debug_predictions.csv
+debug_predictions_with_labels.csv

@@ -41,11 +41,37 @@ Note: this Kaggle CLI version uses `-s/--show` for the leaderboard, **not** `--v
 
 ## Architecture
 
-Repo is at day-zero — only `main.py` (placeholder), `pyproject.toml`, and the downloaded competition zip exist. There is no training, inference, or submission code yet. When building it out, the structure should reflect the submission contract:
+```
+nemotron_local_cv/       # Local CV harness (laptop-buildable, runs on GPU host)
+  host_metric.py         # VERBATIM mirror of metric/nvidia-nemotron-metric (host kernel)
+                         # - extract_final_answer (updated 2026-05-18 — handles nested braces)
+                         # - verify (binary-string bypass + rel_tol=1e-2 numeric)
+                         # - BOXED_INSTRUCTION suffix with backticks (verified vs host)
+                         # - generate_predictions / score (parameterized over MODEL_PATH)
+  labels.py              # 6-way puzzle-type classifier (leading-clause match)
+  splits.py              # build_stratified_val_split(n=600, seed=42)
+  __main__.py            # CLI: python -m nemotron_local_cv --adapter ... --val ...
 
-1. **Data layer** — load `train.csv`/`test.csv`, parse prompts, surface in-prompt examples.
-2. **Training layer** — produce a LoRA adapter (rank ≤ 32) against Nemotron-3-Nano-30B. Any framework is allowed (HF PEFT, Unsloth, Axolotl, TRL, NVIDIA recipes).
-3. **Eval layer** — should mirror the host's eval exactly: vLLM + greedy decoding + `\boxed{}` extraction. Local eval that diverges from this will mislead leaderboard expectations.
-4. **Packaging** — `submission.zip` must contain the adapter files including `adapter_config.json`.
+scripts/
+  download_top_notebooks.py     # round-1 notebook scrape by votes
+  download_specific_notebooks.py # round-2 hand-picked refs
+  build_val_split.py            # writes data/val_split_600.csv (checked in)
 
-The base model is large (30B); training/inference will need GPU compute outside this laptop (host suggests GCP G4 / RTX PRO 6000 Blackwell, but any compute works).
+data/
+  val_split_600.csv      # 600-row stratified val (100 per puzzle type, seed=42)
+
+docs/
+  rules_compliance.md           # what compute/data/models are allowed
+  notebook_learnings/00_SYNTHESIS.md  # READ FIRST — strategic synthesis
+  notebook_learnings/01..09_*.md      # per-theme deep dives
+
+notebooks/                # downloaded public Kaggle notebooks (gitignored if added)
+notebooks/_host_metric/   # host metric kernel (source of truth for local CV)
+```
+
+**Submission contract** (mirrors what the eval layer must respect):
+- Submit a LoRA adapter (rank ≤ 32) for `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` packaged as `submission.zip` with `adapter_config.json` + `adapter_model.safetensors` at the zip root.
+- vLLM, greedy (`temperature=0.0`, `top_p=1.0`), `max_model_len=8192`, `max_tokens=7680`. Answer extracted from `\boxed{...}`.
+- Eval prompt appends the boxed-instruction suffix (with **backticks**) to every user message before `apply_chat_template(..., enable_thinking=True)`. **Training prompts must match this exactly** — `nemotron_local_cv.host_metric.BOXED_INSTRUCTION` is the source of truth.
+
+**Compute split**: laptop builds and verifies code; GPU work (running the 30B base + LoRA in vLLM, training, teacher-CoT generation) runs on Vertex AI. The base model is too large for this laptop.
