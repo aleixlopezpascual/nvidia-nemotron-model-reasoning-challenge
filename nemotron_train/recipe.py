@@ -38,7 +38,9 @@ LORA_CONFIG: dict = {
 # Tune per-run via CLI args; this dict is the documented default.
 TRAINING_DEFAULTS: dict = {
     # Data / sequence
-    "max_seq_length": 8192,
+    # NOTE: TRL renamed `max_seq_length` to `max_length` in 0.13. The offline
+    # packages dataset ships a post-rename version, so we use `max_length`.
+    "max_length": 8192,
     "packing": True,  # short prompts (~300 chars) benefit a lot from packing
 
     # Optimization

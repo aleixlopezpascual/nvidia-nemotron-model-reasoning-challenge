@@ -6,6 +6,14 @@ This is the active workflow. The earlier `docs/archive/vertex_ai_setup.md` was a
 
 ---
 
+## Hard constraints (don't break these)
+
+- **Internet must be OFF** in both the training and CV kernels. Competition rules forbid internet-on kernels. All deps come from the public offline-packages Dataset (`dennisfong/nvidia-nemotron-offline-packages`, ~9 GB pre-built wheels).
+- **Accelerator must be `RTX PRO 6000 Blackwell`**. The CLI's `--accelerator nvidiaRtxPro6000` flag is silently ignored on push, so the accelerator must be enabled once in the Kaggle UI (Session Options) for each kernel. Subsequent CLI pushes preserve it.
+- **Code Dataset path is namespaced**: Kaggle's newer images mount under `/kaggle/input/datasets/<owner>/<slug>/`, NOT `/kaggle/input/<slug>/`. Same for models (`/kaggle/input/models/<owner>/<model>/<framework>/<variant>/<version>/`).
+
+---
+
 ## Layout
 
 ```

@@ -63,6 +63,8 @@ def train(
     if hasattr(model, "enable_input_require_grads"):
         model.enable_input_require_grads()
 
+    _apply_nemotron_h_blackwell_patches()
+
     print("[trainer] building LoRA config")
     peft_config = LoraConfig(**LORA_CONFIG)
 
@@ -98,3 +100,25 @@ def train(
     trainer.save_model(str(output_dir / "final"))
     tokenizer.save_pretrained(str(output_dir / "final"))
     print("[trainer] done.")
+
+
+def _apply_nemotron_h_blackwell_patches() -> None:
+    """Post-model-load patches needed on Blackwell SMs (no-op elsewhere).
+
+    Replaces the Triton rmsnorm_fn in modeling_nemotron_h with a pure-PyTorch
+    fallback and disables Mamba's fast path. Triggered every train() call so
+    it's reliably applied regardless of how the caller wired up imports.
+    """
+    import sys
+
+    try:
+        from blackwell_setup import (  # type: ignore
+            patch_rmsnorm_with_pure_pytorch,
+            disable_nemotron_fast_path,
+        )
+    except ImportError:
+        return  # blackwell_setup not on sys.path — assume not running on Blackwell
+
+    n_rms = patch_rmsnorm_with_pure_pytorch()
+    n_fp = disable_nemotron_fast_path()
+    print(f"[trainer] blackwell patches: rmsnorm_fn={n_rms}, is_fast_path_available=False x{n_fp}")
