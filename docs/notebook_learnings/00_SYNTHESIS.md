@@ -1,16 +1,18 @@
-# Master Synthesis — Public Notebook Landscape (as of 2026-05-18)
+# Master Synthesis — Public Notebook Landscape (as of 2026-05-19)
 
-Cross-cutting insights from **36 top notebooks** on the **NVIDIA Nemotron Model Reasoning Challenge**, distilled from nine thematic write-ups (`01_baseline_and_submission.md` → `09_per_puzzle_solvers.md`).
+Cross-cutting insights from **36 top notebooks** on the **NVIDIA Nemotron Model Reasoning Challenge**, distilled from ten thematic write-ups (`01_baseline_and_submission.md` → `10_open_progress_prize_winner.md`).
 
 Read this first. The per-theme files are the deep references.
 
 > **Round-2 update**: After reading 16 additional notebooks (the 0.86 LB set, novel methods, per-puzzle solvers, local CV tooling), the strategic picture sharpened considerably. See "0.85 → 0.86 → 0.87" section below.
 
+> **Round-3 update (2026-05-19)**: Tong Hui Kang (`tonghuikang`) — the author of the `nemotron-master` corpus AND the Open Progress Prize winner — published his full write-up. This is the ground truth for the 0.85 recipe. Key corrections to our earlier analysis are marked **[CORRECTED]** below. See `10_open_progress_prize_winner.md` for the full deep-dive.
+
 ---
 
 ## The competition in one paragraph
 
-Train a **rank-≤32 LoRA** for **`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16`** (a hybrid Mamba+attention MoE model with 128 experts) that solves rule-induction puzzles. Eval runs in **vLLM** with greedy decoding, `max_model_len=8192`, `max_tokens=7680`; the scorer extracts the answer from `\boxed{...}` (with fallback heuristics) and grades exact-string or relative-numeric. Public LB top is 0.87; multiple public notebooks claim 0.85. Our last submission scored 0.48 — there is a clear, reproducible recipe between us and the 0.85 cluster.
+Train a **rank-≤32 LoRA** for **`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16`** (a hybrid Mamba+attention MoE model with 128 experts) that solves rule-induction puzzles. Eval runs in **vLLM** with greedy decoding, `max_model_len=8192`, `max_tokens=7680`; the scorer extracts the answer from `\boxed{...}` (with fallback heuristics) and grades exact-string or relative-numeric. Public LB top is ~0.87; the Open Progress Prize winner (tonghuikang) achieved **0.85 LB** with a published approach. Multiple public notebooks reproduce 0.85. Our last submission scored 0.48 — there is a clear, reproducible recipe between us and the 0.85 cluster.
 
 ## The 0.85 recipe (convergent across top notebooks)
 
@@ -82,37 +84,40 @@ These are the disagreements between public notebooks. Each is a controlled exper
 
 ## 0.85 → 0.86 → 0.87 (updated)
 
-This section is rewritten after round 2. **The picture is much clearer than the round-1 speculation.**
+This section is rewritten after round 2 and corrected after round 3. **The picture is now very clear.**
 
 ### 0.85 → 0.86: it's the training environment, not the recipe
 
-All three public "0.86 LB" notebooks (`mohamedamr992`, `afr1ste`, `safar1`) are **packaging-only shells around a single shared upstream adapter** trained on **Tinker** (off-Kaggle compute): `kienngx/nemotron-nano-30b-trained/Triton/tinker-adapter/1`. No notebook trains a 0.86 adapter from scratch. Crucially:
+**[CORRECTED in round-3]** Our earlier analysis said "Tinker = 0.86"; the winner's writeup clarifies the picture:
 
-- `huikang`'s on-Kaggle v20 adapter (the canonical 0.85 recipe artifact) scores **0.85**.
-- `kienngx`'s Tinker-trained adapter (same `nemotron-master` lineage, same recipe) scores **0.86**.
-- **Same recipe, better compute environment → +0.01.**
+- `huikang` (tonghuikang, Open Progress Prize winner) uses **Tinker** and achieves **0.85** (not 0.86).
+- `kienngx` / KhoA (who scores **0.86**) uses the same general recipe but achieves perfect scores on numeral, gravity and unit_conversion where huikang's model still sometimes fails — suggesting KhoA resolved the **training-serving misalignment** caused by the SVD adapter conversion, or uses a different training/conversion path entirely.
+- **The 0.85→0.86 gap is not simply "better compute" — it is resolution of the SVD adapter conversion loss** (75% singular mass retained → training-serving misalignment on easy puzzles). Fix the adapter conversion fidelity to close the gap.
 
-This means our access to Vertex AI is *exactly* the right unlock for the 0.85→0.86 step. Training off Kaggle (where the GPU envelope is generous, bf16 is real, no notebook timeout) is what crosses the line. We don't need novel tricks for the first +0.01 — we just need to train somewhere serious.
+All three public "0.86 LB" notebooks (`mohamedamr992`, `afr1ste`, `safar1`) are packaging-only shells around `kienngx/nemotron-nano-30b-trained/Triton/tinker-adapter/1`. No notebook trains a 0.86 adapter from scratch publicly.
 
-Counter-evidence against red herrings: every "broad LoRA target" experiment (Sluitel, Error1249x, Rick v41, BharatMohan v31) lands at **0.57–0.62**, including with hand-tuned `lm_head` fills. Structural changes to the adapter are necessary but not sufficient — the 0.86 ceiling on huikang's recipe is robust.
+Counter-evidence against red herrings: every "broad LoRA target" experiment (Sluitel, Error1249x, Rick v41, BharatMohan v31) lands at **0.57–0.62**. Structural changes to the adapter are necessary but not sufficient.
 
-### 0.86 → 0.87: the public ceiling is real, and only Equation Transformation cracks it
+### 0.86 → 0.87: the real bottlenecks (corrected)
 
-Top public scores cluster at 0.86–0.87. The top-2 cluster (~0.87) hasn't published. From the per-puzzle-type solver analysis (see `09_per_puzzle_solvers.md`), here's the per-type accuracy ceiling implied by the available solvers and CoT data:
+**[CORRECTED in round-3]** Our earlier analysis flagged `equation_numeric` as "the unattacked frontier." The winner's writeup shows this is wrong:
 
-| Puzzle type | Strongest published solver | Accuracy |
-|---|---|---|
-| Numeral Conversion | mohankrishnathalla Roman ↔ Arabic | ~100% |
-| Gravitational Constant | mohankrishnathalla `d = ½gt²` extractor | 99.4% |
-| Unit Conversion | mohankrishnathalla ratio extractor | 99.4% |
-| Text Encryption | konbu17 77-word dictionary injection | 94–97% |
-| Bit Manipulation | konbu17 4-phase per-bit boolean analyzer | 75.5–78.7% |
-| Cryptarithm sub-family of Equation Transformation | kimberleyduran cryptarithm verifier | ~12% covered |
-| **`equation_numeric` (732 rows)** | **NONE — zero public solver** | **~29% (model-only)** |
+- `equation_numeric_deduce`: **90.6% solved** in the winning approach (≥ 541/596). **This is NOT the bottleneck.**
+- The real bottlenecks are:
 
-konbu17 v2's LoRA hits 29.6% on the full Equation Transformation family vs 78.7% on Bit Manipulation with the same recipe. **The Equation Transformation accuracy hole — ~700 rows worth of misses, worth roughly +0.05 LB if we could fully solve them — is the single most concrete unattacked frontier in public material.** kimberleyduran's partial cryptarithm port added +0.01 LB (0.83→0.84) when wired into dgxchen's recipe; a complete `equation_numeric` solver would plausibly do better.
+| Puzzle type | Winning solve rate | Gap vs 100% | Notes |
+|---|---|---|---|
+| cryptarithm_deduce | 8.2% (54/659) | 605 misses | Nemotron is bad at symbol concatenation; model memorizes, not generalizes |
+| cryptarithm_guess | 6.7% (11/164) | 153 misses | Needs guessing / RL, not deterministic CoT |
+| equation_numeric_guess | 15.4% (21/136) | 115 misses | Inherently ambiguous (unseen operator) |
+| bit_manipulation (complex) | ~85% overall | Complex ops (ROT+XOR+NOT chains) exceed token budget |
 
-The build target for the 0.87 leap: **port the unpublished `equation_numeric_deduce.py` from Tong Hui Kang's repo** (referenced but never reproduced inline in public Kaggle notebooks) and/or build an equivalent with constraint propagation / Z3 + joint deduction. This is the one public route to the top.
+The **single biggest recoverable gap** is cryptarithm (~758 misses × ≥ some fraction solvable). But: the winner notes Nemotron is "quite bad at splitting and concatenating symbols" — this may be a fundamental model limitation, not a CoT-design problem.
+
+Top solutions at 0.877 will need to:
+1. Fix SVD training-serving misalignment (KhoA likely already did this).
+2. Handle complex bit manipulation chains with a more compact token representation (e.g. base-64 bit encoding).
+3. Make progress on cryptarithm — requires either: (a) token-level work to fix Nemotron's symbol handling, or (b) a guessing/RL approach for the non-deterministic sub-problems.
 
 ### Other plausible 0.87+ levers (lower confidence)
 
@@ -126,31 +131,36 @@ The build target for the 0.87 leap: **port the unpublished `equation_numeric_ded
 - One public GRPO notebook (`johnnyhyland`). Pure GRPO; no SFT warm-start in the public version. `beta=0.0` (no KL, no reference model — to save memory). Small scale: 220 prompts × 4 generations × 1 epoch.
 - **Most reusable artifact:** the cosine-length-scaled reward from Light-R1, which solves the *zero-advantage problem* (when all rollouts agree, flat ±1 rewards give zero gradient). See the verbatim reward function in `05_unsloth_and_rl.md`.
 - **No public LB lift verified** for GRPO. Treat as "SFT first → optional 50–200 GRPO step polish on a strong SFT base", not as a competing primary lever.
+- **[CONFIRMED by winner]**: "I already have the optimal policy for solvable problems… The only job of the LLM is to follow the policy." RL adds no signal when the target tokens are deterministic. The exception is cryptarithm (guessing steps) — but that is a hard, speculative problem.
 
 ## Submission environment foot-guns
 
-From `01_baseline_and_submission.md`:
+From `01_baseline_and_submission.md` and confirmed by the Open Progress Prize winner:
 
 - The host's eval prompt appends the literal string (with backticks!) `'\nPlease put your final answer inside \`\\boxed{}\`. For example: \`\\boxed{your answer}\`'` to every user message *before* the chat template is applied with `enable_thinking=True`. **Any local validator that omits this suffix will disagree with the LB.** Verified verbatim against host kernel `metric/nvidia-nemotron-metric` (2026-05-18 pull).
-- Tinker→PEFT adapter conversion has three load-bearing rewrites: `model.*` → `backbone.*` (Nemotron's submodule rename), per-expert unfusing of shared `experts.w1/w2` LoRAs into per-expert projections, and SVD-compression of Mamba's separate `gate_proj`+`x_proj` LoRAs into a single rank-32 `in_proj` LoRA.
+- **[WINNER-CONFIRMED]** Tinker→PEFT adapter conversion has four load-bearing rewrites: `model.*` → `backbone.*` (Nemotron's submodule rename), per-expert unfusing of shared `experts.w1/w2` LoRAs into per-expert projections, SVD-compression of Mamba's separate `gate_proj`+`x_proj` LoRAs into a single rank-32 `in_proj` LoRA (only **75% singular mass retained — lossy**), and keeping `lm_head` LoRA weights.
+- **[NEW]** The SVD lossiness is the root cause of training-serving misalignment observed at 0.85 LB: model fails to write `\boxed`, generates degenerate repeated-token sequences, misses template words. This accounts for the ~2–3pp gap between 87.7% solver target and 0.85 LB.
 - The submission environment has **no internet**. Only the wheelhouse-Kaggle-dataset approach works for external deps.
 
 ---
 
-## Recommended next steps (refined after round 2)
+## Recommended next steps (refined after round 3)
 
-The strategic picture is now concrete enough to give a specific plan. The 0.85→0.86 step is just "train off Kaggle on bigger compute" — which we have via Vertex AI. The 0.86→0.87 step has *one clear public-route attack*: build the missing Equation Transformation solver and rebuild that puzzle type's CoT data.
+**[CORRECTED]** The strategic picture is now based on the winner's first-person writeup. Key changes vs round-2:
+- Step 2 target is still ~0.85 on LB (not 0.86 as previously estimated — the 0.86 gap is adapter fidelity, not compute alone).
+- Step 3 is **not** Equation Transformation (already ~91% solved) — it is fixing adapter conversion fidelity and tackling complex bit manipulation.
 
 **Suggested order of operations:**
 
-1. **Stand up a local CV harness** based on `jiazhuang/nemotron-local-cv`. Validate the boxed-instruction-suffix detail against the actual host `metric.py`. Verbatim code is in `08_local_cv_and_adapter_fusion.md`. *Estimated effort: 1 day.*
-2. **Reproduce `huikang/end-to-end-finetuning-for-lb-0-85` on Vertex AI** with `completion_only_loss=True` baked in. Confirm we hit ~0.85 locally and ~0.86 on the LB (the "train off-Kaggle bonus"). *Estimated effort: 1–2 days once compute is provisioned.*
-3. **Build the Equation Transformation solver** (the missing `equation_numeric_deduce.py`-style verifier; pair it with constraint propagation / Z3). Use it to (a) generate solver-augmented CoT and (b) rejection-sample teacher CoT against ground truth. *Estimated effort: 3–7 days.*
-4. **Re-train with the augmented Equation Transformation data + Bit Manipulation upweighting** as konbu17 does. Target LB: ~0.87. *Estimated effort: 2–3 days.*
-5. (Optional speed-up) **Swap AdamW for Muon** to reduce wall-clock per training run (~25% faster). Worth it once we're doing many iterations.
+1. **Stand up a local CV harness** based on `jiazhuang/nemotron-local-cv`. Validate the boxed-instruction-suffix detail against the actual host `metric.py`. Verbatim code is in `08_local_cv_and_adapter_fusion.md`. *Estimated effort: 1 day.* ✅ (Done — `nemotron_local_cv/` mirrors host metric byte-for-byte.)
+2. **Reproduce the tonghuikang 0.85 recipe on Kaggle Notebooks (Blackwell GPU)** with `completion_only_loss=True` baked in, using the `tonghuikang/nemotron` corpus. Target: ~0.85 LB. *Estimated effort: 1–2 days.*
+3. **Resolve SVD training-serving misalignment** — either: (a) train rank-16 on Tinker / end-to-end and losslessly upscale, (b) post-finetune after SVD conversion on high-loss tokens (winner's untried proposal — promising), or (c) implement end-to-end SFT without Tinker entirely. This is the path from 0.85 → 0.86. *Estimated effort: 2–4 days.*
+4. **Improve bit manipulation CoT** for complex operation chains — compact token representation (base-64 bit encoding?) to stay within 7680-token budget on nested ops. *Estimated effort: 3–5 days.*
+5. **Investigate cryptarithm** — the only category that is nearly unimproved (7–8%). Requires either token-level fixes to Nemotron's symbol handling or a guessing-capable approach. *High uncertainty; may be a hard ceiling.*
+6. (Optional) **Swap AdamW for Muon** to reduce wall-clock per training run (~25% faster). Worth it once we're doing many iterations.
 
 This is plausibly ~2–3 weeks of work with our compute access, against ~4 weeks of competition runway.
 
-**Alternative path**: pursue an Open Contribution Award (Best Data Method, RL, or Fine-tuning — 1 DGX Spark each, requires top-10% LB + form submission per category). The Equation Transformation solver work would naturally compete in the Data Method category even if the LB lift falls short of the top-3 cash prizes.
+**Alternative path**: pursue an Open Contribution Award (Best Data Method, RL, or Fine-tuning — 1 DGX Spark each, requires top-10% LB + form submission per category). The Open Progress Prize winner (tonghuikang) has published detailed methodology. We can build on it explicitly and contribute our own improvements.
 
-**Open question for the user**: do we want to (a) commit to the LB-chasing plan above, (b) swing harder for a novel Open Contribution Award angle, or (c) brainstorm a different attack before committing?
+**[NEW] Key training insight from winner**: The training objective is **maximize minimum logprob**, not minimize average cross-entropy. Monitor per-trace `min_logprob`; if any token has `logprob < ln(2) ≈ 0.693`, that token is more likely than not to be generated differently at inference. Redesign the CoT to address those specific tokens. This is a much richer feedback signal than the aggregate loss curve.
