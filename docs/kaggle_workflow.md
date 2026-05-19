@@ -72,6 +72,12 @@ If you just edited cell contents in `scripts/build_kaggle_notebooks.py`, run bot
 
 In the Kaggle UI: open `aleixlopez/nemotron-sft-training`, hit **Run All** (or run a Quick Save). Defaults are a smoke run (200 rows, 50 steps) — bump `sample_n` to `None` and `max_steps` to `-1` in cell 6 for the full ~1-epoch run.
 
+The generated notebook now uses a memory-safe training profile by default:
+- `max_length=4096`
+- `packing=False`
+
+These values reduce Blackwell OOM risk during SFT. Once a run is stable, scale upward (first `packing=True`, then larger `max_length`) only if needed.
+
 Output: `/kaggle/working/adapter/` contains `adapter_config.json` + `adapter_model.safetensors`. The final cell zips them into `/kaggle/working/submission.zip`.
 
 ### 4. Run the CV kernel
@@ -96,6 +102,11 @@ Both kernels import `kaggle/blackwell_setup.py` which encapsulates these:
 - `TRITON_PTXAS_BLACKWELL_PATH=/tmp/ptxas-blackwell` env var; if the `ptxas-blackwell` binary isn't already at that path, attach the public `metric/nvidia_metric_utility_script` kernel as a data source and `tar xf` it into `/tmp`.
 
 If a training run crashes inside Triton or with a CUDA fast-path assert, the most likely cause is the post-load patches running too early (before the model is loaded) or not at all.
+
+If training crashes with CUDA OOM inside `modeling_nemotron_h.py`, use this ladder:
+1. Keep `packing=False` and lower `max_length` (e.g. 4096 → 3072).
+2. Re-run a short smoke job (`sample_n`, `max_steps`) to confirm stability.
+3. Scale up toward your target (`max_length`, then packing) after a stable run.
 
 ---
 
