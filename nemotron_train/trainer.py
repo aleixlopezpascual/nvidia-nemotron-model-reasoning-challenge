@@ -21,6 +21,8 @@ def train(
     learning_rate: float | None = None,
     num_train_epochs: float | None = None,
     sample_n: int | None = None,
+    max_length: int | None = None,
+    packing: bool | None = None,
     extra_training_kwargs: dict | None = None,
 ) -> None:
     """Run SFT and write the LoRA adapter to ``output_dir``.
@@ -33,6 +35,8 @@ def train(
         learning_rate: override the recipe default (2e-4).
         num_train_epochs: override the recipe default (1.0).
         sample_n: optional row subsample (for quick iteration runs).
+        max_length: optional sequence-length override for SFTConfig.
+        packing: optional packing override for SFTConfig.
         extra_training_kwargs: passed through to SFTConfig as overrides.
     """
     import torch
@@ -80,6 +84,10 @@ def train(
         sft_kwargs["learning_rate"] = learning_rate
     if num_train_epochs is not None:
         sft_kwargs["num_train_epochs"] = num_train_epochs
+    if max_length is not None:
+        sft_kwargs["max_length"] = max_length
+    if packing is not None:
+        sft_kwargs["packing"] = packing
     if extra_training_kwargs:
         sft_kwargs.update(extra_training_kwargs)
 

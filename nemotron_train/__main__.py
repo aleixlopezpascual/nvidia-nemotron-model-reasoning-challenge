@@ -23,6 +23,21 @@ def main() -> int:
     ap.add_argument("--lr", type=float, default=None, help="Override learning rate (default 2e-4)")
     ap.add_argument("--epochs", type=float, default=None, help="Override num_train_epochs (default 1.0)")
     ap.add_argument("--sample-n", type=int, default=None, help="Subsample N rows for quick runs")
+    ap.add_argument("--max-length", type=int, default=None, help="Override SFT max_length (default from recipe)")
+    packing_group = ap.add_mutually_exclusive_group()
+    packing_group.add_argument(
+        "--packing",
+        dest="packing",
+        action="store_true",
+        help="Override SFT packing=True",
+    )
+    packing_group.add_argument(
+        "--no-packing",
+        dest="packing",
+        action="store_false",
+        help="Override SFT packing=False",
+    )
+    ap.set_defaults(packing=None)
     args = ap.parse_args()
 
     # Lazy import — the package's top-level avoids pulling torch on import.
@@ -37,6 +52,8 @@ def main() -> int:
         learning_rate=args.lr,
         num_train_epochs=args.epochs,
         sample_n=args.sample_n,
+        max_length=args.max_length,
+        packing=args.packing,
     )
     return 0
 
