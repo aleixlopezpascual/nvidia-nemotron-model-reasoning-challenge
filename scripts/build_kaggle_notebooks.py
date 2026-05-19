@@ -293,7 +293,8 @@ def _notebook(cells: list[dict], internet: bool) -> dict:
 
 
 def _kernel_metadata(slug: str, title: str, internet: bool, dataset_sources: list[str],
-                     competition_sources: list[str] | None = None) -> dict:
+                     competition_sources: list[str] | None = None,
+                     kernel_sources: list[str] | None = None) -> dict:
     return {
         "id": slug,
         "title": title,
@@ -305,8 +306,9 @@ def _kernel_metadata(slug: str, title: str, internet: bool, dataset_sources: lis
         "enable_internet": "true" if internet else "false",
         "dataset_sources": dataset_sources,
         "competition_sources": competition_sources or [],
-        "kernel_sources": [],
+        "kernel_sources": kernel_sources or [],
         "model_sources": [BASE_MODEL_HANDLE],
+        "machine_shape": "NvidiaRtxPro6000",
     }
 
 
@@ -382,6 +384,7 @@ def build_cv_kernel(out_dir: Path) -> None:
             internet=False,
             dataset_sources=[CODE_DATASET, OFFLINE_PACKAGES_DATASET],
             competition_sources=["nvidia-nemotron-model-reasoning-challenge"],
+            kernel_sources=[f"{KAGGLE_USER}/nemotron-sft-training"],
         ),
         indent=2,
     ))
