@@ -307,6 +307,7 @@ def _kernel_metadata(slug: str, title: str, internet: bool, dataset_sources: lis
         "competition_sources": competition_sources or [],
         "kernel_sources": [],
         "model_sources": [BASE_MODEL_HANDLE],
+        "machine_shape": "NvidiaRtxPro6000",
     }
 
 
