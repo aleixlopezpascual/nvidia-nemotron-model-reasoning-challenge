@@ -14,7 +14,9 @@
   "competition_sources": [
     "nvidia-nemotron-model-reasoning-challenge"
   ],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "aleixlopez/nemotron-sft-training"
+  ],
   "model_sources": [
     "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1"
   ],
