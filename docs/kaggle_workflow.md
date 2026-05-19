@@ -9,7 +9,7 @@ This is the active workflow. The earlier `docs/archive/vertex_ai_setup.md` was a
 ## Hard constraints (don't break these)
 
 - **Internet must be OFF** in both the training and CV kernels. Competition rules forbid internet-on kernels. All deps come from the public offline-packages Dataset (`dennisfong/nvidia-nemotron-offline-packages`, ~9 GB pre-built wheels).
-- **Accelerator must be `RTX PRO 6000 Blackwell`**. The CLI's `--accelerator nvidiaRtxPro6000` flag is silently ignored on push, so the accelerator must be enabled once in the Kaggle UI (Session Options) for each kernel. Subsequent CLI pushes preserve it.
+- **Accelerator must be `RTX PRO 6000 Blackwell`**. `"machine_shape": "NvidiaRtxPro6000"` is baked into both `kernel-metadata.json` files, so the correct GPU is selected automatically on every `kaggle kernels push`. No manual UI step needed.
 - **Code Dataset path is namespaced**: Kaggle's newer images mount under `/kaggle/input/datasets/<owner>/<slug>/`, NOT `/kaggle/input/<slug>/`. Same for models (`/kaggle/input/models/<owner>/<model>/<framework>/<variant>/<version>/`).
 
 ---
@@ -76,7 +76,7 @@ Output: `/kaggle/working/adapter/` contains `adapter_config.json` + `adapter_mod
 
 ### 4. Run the CV kernel
 
-Add a kernel-source pointing at the latest training-kernel version (so the adapter is on disk at `/kaggle/input/<train-kernel-slug>/adapter/`), then **Run All** on `aleixlopez/nemotron-local-cv`.
+The CV kernel has `aleixlopez/nemotron-sft-training` in its `kernel_sources`, so the training kernel's output is auto-mounted at `/kaggle/input/nemotron-sft-training/`. No manual attachment needed — just ensure the training kernel has completed at least one successful run, then **Run All** on `aleixlopez/nemotron-local-cv`.
 
 Output: overall accuracy + per-label breakdown + `/kaggle/working/debug_predictions_with_labels.csv`.
 
