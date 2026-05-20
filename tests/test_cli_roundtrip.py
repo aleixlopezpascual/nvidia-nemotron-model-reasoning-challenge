@@ -190,3 +190,51 @@ def test_cli_rejects_missing_columns(tmp_path, monkeypatch, val_csv):
     with pytest.raises(SystemExit) as ei:
         cli.main()
     assert "label" in str(ei.value)
+
+
+def test_cli_batch_manifest_writes_ranked_summary(tmp_path, monkeypatch, capsys, val_csv):
+    def _stub_score(*args, **kwargs):
+        submission = kwargs.get("submission", args[1] if len(args) > 1 else None)
+        adapter = submission["prediction"].iloc[0]
+        return {
+            "/fake/adapter/beta": 0.55,
+            "/fake/adapter/alpha": 0.83,
+        }[adapter]
+
+    manifest = tmp_path / "manifest.csv"
+    pd.DataFrame(
+        [
+            {"name": "beta", "adapter": "/fake/adapter/beta"},
+            {"name": "alpha", "adapter": "/fake/adapter/alpha"},
+        ]
+    ).to_csv(manifest, index=False)
+
+    summary = tmp_path / "summary.csv"
+    monkeypatch.setattr(host_metric, "score", _stub_score)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "nemotron_local_cv",
+            "--adapter-manifest",
+            str(manifest),
+            "--summary-out",
+            str(summary),
+            "--val",
+            str(val_csv),
+            "--model",
+            "fake-model-id",
+        ],
+    )
+
+    rc = cli.main()
+    assert rc == 0
+    assert summary.exists()
+
+    ranked = pd.read_csv(summary)
+    assert ranked["name"].tolist() == ["alpha", "beta"]
+    assert ranked["overall_accuracy"].tolist() == pytest.approx([0.83, 0.55])
+
+    out = capsys.readouterr().out
+    assert "ranked adapters" in out

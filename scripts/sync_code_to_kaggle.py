@@ -36,6 +36,7 @@ BUNDLED_PATHS: list[tuple[str, str]] = [
     ("nemotron_local_cv", "nemotron_local_cv"),
     ("nemotron_train", "nemotron_train"),
     ("data/val_split_600.csv", "data/val_split_600.csv"),
+    ("data/adapter_candidates.csv", "data/adapter_candidates.csv"),
     ("kaggle/blackwell_setup.py", "blackwell_setup.py"),
 ]
 
