@@ -18,7 +18,12 @@
     "aleixlopez/nemotron-sft-training"
   ],
   "model_sources": [
-    "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1"
+    "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1",
+    "kienngx/nemotron-nano-30b-trained/triton/tinker-adapter/1",
+    "huikang/nemotron-adapter/Transformers/default/20",
+    "kienngx/nemotron-nano-30b-trained/triton/5e-5/1",
+    "kienngx/nemotron-nano-30b-trained/triton/1e-5/1",
+    "kienngx/nemotron-nano-30b-trained/triton/batch2-lr1e-workers8/1"
   ],
   "machine_shape": "NvidiaRtxPro6000"
 }

@@ -56,21 +56,23 @@ After any edit to `nemotron_local_cv/`, `nemotron_train/`, `data/val_split_600.c
 uv run python scripts/sync_code_to_kaggle.py -m "what changed"
 ```
 
-Idempotent. First run creates `aleixlopez/nemotron-code`; subsequent runs add a new version.
+Idempotent. First run creates `aleixlopez/nemotron-code`; subsequent runs add a new version. **Wait ~30 s** after the upload before triggering a kernel run — Kaggle needs time to process the new version before kernels can attach it.
 
-### 2. (If notebook structure changed) Rebuild + push the kernels
+### 2. (If notebook structure changed) Rebuild + push the kernel notebook
 
 ```bash
-uv run python scripts/build_kaggle_notebooks.py
+uv run python scripts/build_kaggle_notebooks.py --profile {tiny|smoke|full}
 uv run kaggle kernels push -p kaggle/train_kernel
 uv run kaggle kernels push -p kaggle/cv_kernel
 ```
 
-If you just edited cell contents in `scripts/build_kaggle_notebooks.py`, run both commands. If you only updated package code, only step 1 is needed — the next kernel run pulls the new dataset version.
+> ⚠️ **Important caveat**: `kaggle kernels push` silently RESETS the accelerator selection back to a generic 16 GiB GPU. The `--accelerator nvidiaRtxPro6000` flag is broken in CLI 2.1.2. **After every push, re-set the accelerator in the Kaggle UI (Session Options → RTX PRO 6000 Blackwell, Save) before running**.
+>
+> If you only updated package code (step 1), you don't need to push the kernel — the next run picks up the latest dataset version automatically.
 
-### 3. Run the training kernel
+### 3. Run the kernel — from the UI, not the CLI
 
-In the Kaggle UI: open `aleixlopez/nemotron-sft-training`, hit **Run All** (or run a Quick Save). Defaults are a smoke run (200 rows, 50 steps) — bump `sample_n` to `None` and `max_steps` to `-1` in cell 6 for the full ~1-epoch run.
+`kaggle kernels push` always auto-runs, but on the wrong (16 GiB) GPU because of the accelerator-reset bug. For real runs:
 
 The generated notebook now uses a memory-safe training profile by default:
 - `max_length=4096`
@@ -86,9 +88,21 @@ The CV kernel has `aleixlopez/nemotron-sft-training` in its `kernel_sources`, so
 
 Output: overall accuracy + per-label breakdown + `/kaggle/working/debug_predictions_with_labels.csv`.
 
+For no-retraining adapter triage, `data/adapter_candidates.csv` is a starter manifest (public community adapters) compatible with:
+
+```bash
+uv run python -m nemotron_local_cv --adapter-manifest data/adapter_candidates.csv --summary-out data/adapter_eval_summary.csv --val data/val_split_600.csv --model <base-model-path-or-id>
+```
+
 ### 5. Submit
 
-In the Kaggle UI on the training kernel's output, click **Submit to Competition** and select `submission.zip`. (Or use `uv run kaggle competitions submit -c nvidia-nemotron-model-reasoning-challenge -f <local-path-to-zip> -m "..."` after downloading the zip — but pushing from the kernel output is faster.)
+In the Kaggle UI on the training kernel's output, click **Submit to Competition** and select `submission.zip`. (Or use `uv run kaggle competitions submit -c nvidia-nemotron-model-reasoning-challenge -f <local-path> -m "..."` after downloading the zip — pushing from the kernel output is faster.)
+
+For local/offline packaging from an existing adapter directory, use:
+
+```bash
+uv run python scripts/package_submission.py --adapter-dir /path/to/adapter --output submission.zip
+```
 
 ---
 

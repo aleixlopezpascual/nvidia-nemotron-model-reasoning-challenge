@@ -25,6 +25,14 @@ CODE_DATASET = f"{KAGGLE_USER}/nemotron-code"
 BASE_MODEL_HANDLE = "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1"
 BASE_MODEL_KAGGLEHUB = "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default"
 
+TRIAGE_MODEL_SOURCES = [
+    "kienngx/nemotron-nano-30b-trained/triton/tinker-adapter/1",
+    "huikang/nemotron-adapter/Transformers/default/20",
+    "kienngx/nemotron-nano-30b-trained/triton/5e-5/1",
+    "kienngx/nemotron-nano-30b-trained/triton/1e-5/1",
+    "kienngx/nemotron-nano-30b-trained/triton/batch2-lr1e-workers8/1",
+]
+
 # ----------------------------------------------------------------------------
 # Reusable cell snippets
 # ----------------------------------------------------------------------------
@@ -208,67 +216,70 @@ subprocess.check_call([
     "peft", "vllm",
 ])
 print("peft + vllm installed from offline packages.")
+
+# Compatibility shim for newer protobuf runtimes where MessageFactory.GetPrototype
+# was removed (some Kaggle/papermill-side deps still call it).
+from google.protobuf import message_factory as _message_factory
+if not hasattr(_message_factory.MessageFactory, "GetPrototype"):
+    def _get_prototype(self, descriptor):
+        return _message_factory.GetMessageClass(descriptor)
+    _message_factory.MessageFactory.GetPrototype = _get_prototype
+    print("Applied protobuf MessageFactory.GetPrototype compatibility shim.")
 '''
 
-CV_CELL_LOCATE_ADAPTER = '''\
-# Locate the trained adapter. Two ways to attach it to this kernel:
-#   (a) Add the training kernel as a kernel-source: adapter lives at
-#       /kaggle/input/<train-kernel-slug>/adapter/
-#   (b) Upload it as a private Dataset and attach: /kaggle/input/<dataset>/...
-# Both code paths are covered by the glob below.
-import glob
+CV_CELL_RUN_BATCH = '''\
+# Run no-retraining adapter triage via the batch CLI.
+import sys
+from pathlib import Path
+from nemotron_local_cv import __main__ as cv_cli
 
-cands = glob.glob("/kaggle/input/**/adapter_config.json", recursive=True)
-assert cands, "No adapter_config.json found in /kaggle/input/**. Attach the trained-adapter source."
-ADAPTER_DIR = str(Path(cands[0]).parent)
-print(f"ADAPTER_DIR: {ADAPTER_DIR}")
+manifest = Path(CODE_ROOT) / "data" / "adapter_candidates.csv"
+assert manifest.exists(), f"missing manifest: {manifest}"
+print(f"manifest: {manifest}")
+
+summary_out = Path("/kaggle/working/adapter_eval_summary.csv")
+debug_dir = Path("/kaggle/working/adapter_debug")
+if debug_dir.exists():
+    import shutil
+    shutil.rmtree(debug_dir)
+
+cmd = [
+    "nemotron_local_cv",
+    "--adapter-manifest",
+    str(manifest),
+    "--summary-out",
+    str(summary_out),
+    "--debug-dir",
+    str(debug_dir),
+    "--debug",
+    "--val",
+    str(VAL_SPLIT),
+    "--model",
+    str(BASE_MODEL_PATH),
+]
+print("$ " + " ".join(cmd))
+sys.argv = cmd
+rc = cv_cli.main()
+assert rc == 0, f"nemotron_local_cv exited with {rc}"
+
+print(f"wrote {summary_out}")
 '''
 
-CV_CELL_RUN = '''\
-# Run local CV via the host-metric mirror.
+CV_CELL_SHOW_RESULTS = '''\
 import pandas as pd
-import tempfile
-from pathlib import Path
-from nemotron_local_cv import host_metric
-
-val_df = pd.read_csv(VAL_SPLIT)
-print(f"val rows: {len(val_df)}")
-print(val_df["label"].value_counts().to_dict())
-
-with tempfile.TemporaryDirectory() as tmp:
-    tmp_path = Path(tmp)
-    val_df.to_csv(tmp_path / "test.csv", index=False)
-    host_metric.configure(model_path=str(BASE_MODEL_PATH), data_path=tmp_path)
-
-    solution = val_df[["id", "answer"]]
-    submission_stub = pd.DataFrame([{"prediction": ADAPTER_DIR}])
-
-    accuracy = host_metric.score(
-        solution=solution,
-        submission=submission_stub,
-        row_id_column_name="id",
-        debug=True,
-    )
-
-print(f"\\n=== overall accuracy: {accuracy:.4f} ===")
-'''
-
-CV_CELL_PER_LABEL = '''\
-# Per-label breakdown joined from the debug CSV produced above.
 from pathlib import Path
 
-debug = Path("/kaggle/working/debug_predictions.csv")
-if debug.exists():
-    pred = pd.read_csv(debug, dtype="str").fillna({"extracted_prediction": "NOT_FOUND"})
-    merge = val_df.astype({"id": "str"}).merge(pred.astype({"id": "str"}), on="id", how="left")
-    merge["is_correct"] = merge.apply(
-        lambda r: host_metric.verify(str(r.answer), str(r.extracted_prediction)),
-        axis=1,
-    )
-    print(merge.groupby("label").is_correct.agg(["mean", "count"]).to_string())
-    merge.to_csv("/kaggle/working/debug_predictions_with_labels.csv", index=False)
-else:
-    print("debug_predictions.csv not found — re-run with debug=True")
+summary = Path("/kaggle/working/adapter_eval_summary.csv")
+assert summary.exists(), "adapter_eval_summary.csv missing"
+df = pd.read_csv(summary)
+print(df.to_string(index=False))
+
+per_label = Path("/kaggle/working/adapter_eval_summary_per_label.csv")
+if per_label.exists():
+    pl = pd.read_csv(per_label)
+    top = pl.sort_values(["label", "accuracy"], ascending=[True, False]).groupby("label").head(1)
+    print("\\nTop adapter per label:")
+    print(top.to_string(index=False))
 '''
 
 # ----------------------------------------------------------------------------
@@ -314,9 +325,15 @@ def _notebook(cells: list[dict], internet: bool) -> dict:
     }
 
 
-def _kernel_metadata(slug: str, title: str, internet: bool, dataset_sources: list[str],
-                     competition_sources: list[str] | None = None,
-                     kernel_sources: list[str] | None = None) -> dict:
+def _kernel_metadata(
+    slug: str,
+    title: str,
+    internet: bool,
+    dataset_sources: list[str],
+    competition_sources: list[str] | None = None,
+    kernel_sources: list[str] | None = None,
+    model_sources: list[str] | None = None,
+) -> dict:
     return {
         "id": slug,
         "title": title,
@@ -329,7 +346,7 @@ def _kernel_metadata(slug: str, title: str, internet: bool, dataset_sources: lis
         "dataset_sources": dataset_sources,
         "competition_sources": competition_sources or [],
         "kernel_sources": kernel_sources or [],
-        "model_sources": [BASE_MODEL_HANDLE],
+        "model_sources": model_sources or [BASE_MODEL_HANDLE],
         "machine_shape": "NvidiaRtxPro6000",
     }
 
@@ -404,9 +421,8 @@ def build_cv_kernel(out_dir: Path) -> None:
         _code(CELL_BLACKWELL_PREMODEL),
         _code(CV_CELL_DEPS),
         _code(CELL_RESOLVE_PATHS),
-        _code(CV_CELL_LOCATE_ADAPTER),
-        _code(CV_CELL_RUN),
-        _code(CV_CELL_PER_LABEL),
+        _code(CV_CELL_RUN_BATCH),
+        _code(CV_CELL_SHOW_RESULTS),
     ]
     (out_dir / "notebook.ipynb").write_text(json.dumps(_notebook(cells, internet=False), indent=1))
     (out_dir / "kernel-metadata.json").write_text(json.dumps(
@@ -417,6 +433,7 @@ def build_cv_kernel(out_dir: Path) -> None:
             dataset_sources=[CODE_DATASET, OFFLINE_PACKAGES_DATASET],
             competition_sources=["nvidia-nemotron-model-reasoning-challenge"],
             kernel_sources=[f"{KAGGLE_USER}/nemotron-sft-training"],
+            model_sources=[BASE_MODEL_HANDLE, *TRIAGE_MODEL_SOURCES],
         ),
         indent=2,
     ))
