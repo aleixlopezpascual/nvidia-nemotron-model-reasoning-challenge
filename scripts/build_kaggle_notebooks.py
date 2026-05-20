@@ -30,7 +30,9 @@ TRIAGE_MODEL_SOURCES = [
     "huikang/nemotron-adapter/Transformers/default/20",
     "kienngx/nemotron-nano-30b-trained/triton/5e-5/1",
     "kienngx/nemotron-nano-30b-trained/triton/1e-5/1",
+    "kienngx/nemotron-nano-30b-trained/triton/1e-5-batch-2-workers-8/1",
     "kienngx/nemotron-nano-30b-trained/triton/batch2-lr1e-workers8/1",
+    "kienngx/nemotron-nano-30b-trained/triton/grad-accum1-workers8-maxlen-4096-lr1e-5/1",
 ]
 
 # ----------------------------------------------------------------------------
