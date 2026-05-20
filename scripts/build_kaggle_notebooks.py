@@ -228,12 +228,29 @@ if not hasattr(_message_factory.MessageFactory, "GetPrototype"):
 '''
 
 CV_CELL_RUN_BATCH = '''\
-# Run no-retraining adapter triage via the batch CLI.
+# Run no-training adapter evaluation via the batch CLI.
 import sys
 from pathlib import Path
 from nemotron_local_cv import __main__ as cv_cli
 
-manifest = Path(CODE_ROOT) / "data" / "adapter_candidates.csv"
+SCRIPTS_ROOT = Path(CODE_ROOT) / "scripts"
+if SCRIPTS_ROOT.is_dir():
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+from materialize_merge_experiments import materialize_merge_experiments
+
+merge_plan = Path(CODE_ROOT) / "data" / "merge_experiments.csv"
+if merge_plan.exists():
+    merged_root = Path("/kaggle/working/merged_adapters")
+    manifest = Path("/kaggle/working/merged_adapter_manifest.csv")
+    print(f"merge plan: {merge_plan}")
+    materialize_merge_experiments(
+        experiments_csv=merge_plan,
+        output_root=merged_root,
+        manifest_out=manifest,
+    )
+else:
+    manifest = Path(CODE_ROOT) / "data" / "adapter_candidates.csv"
+
 assert manifest.exists(), f"missing manifest: {manifest}"
 print(f"manifest: {manifest}")
 
@@ -440,6 +457,95 @@ def build_cv_kernel(out_dir: Path) -> None:
     print(f"built {out_dir}/notebook.ipynb + kernel-metadata.json")
 
 
+# ----------------------------------------------------------------------------
+# Submit kernel cells  — no GPU needed, just zips a chosen adapter
+# ----------------------------------------------------------------------------
+
+SUBMIT_CELL = '''\
+# Package a chosen merged adapter from the CV kernel output into submission.zip.
+# No GPU required — this notebook runs in seconds.
+import os, zipfile
+from pathlib import Path
+
+# ── choose which adapter to package ──────────────────────────────────────────
+# Must match a name in the CV kernel's merged_adapter_manifest.csv.
+ADAPTER_NAME = "tinker_plus_5e5_full_010"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Locate the CV kernel output.  It's mounted as a kernel-source input so it
+# lands under /kaggle/input/<kernel-owner>/<kernel-slug>/.
+import glob
+cv_candidates = glob.glob(
+    f"/kaggle/input/**/merged_adapters/{ADAPTER_NAME}/adapter_config.json",
+    recursive=True,
+)
+assert cv_candidates, (
+    f"Could not find adapter_config.json for {ADAPTER_NAME} under /kaggle/input. "
+    "Make sure the CV kernel is attached as a kernel source."
+)
+adapter_dir = Path(cv_candidates[0]).parent
+print(f"adapter_dir: {adapter_dir}")
+
+REQUIRED = ["adapter_config.json", "adapter_model.safetensors"]
+missing = [f for f in REQUIRED if not (adapter_dir / f).is_file()]
+assert not missing, f"Missing required files: {missing}"
+
+out_zip = Path("/kaggle/working/submission.zip")
+out_zip.parent.mkdir(parents=True, exist_ok=True)
+if out_zip.exists():
+    out_zip.unlink()
+
+with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+    for fname in REQUIRED:
+        zf.write(adapter_dir / fname, arcname=fname)
+
+# Verify
+with zipfile.ZipFile(out_zip) as zf:
+    names = sorted(zf.namelist())
+assert names == sorted(REQUIRED), f"Unexpected zip contents: {names}"
+
+size_gb = out_zip.stat().st_size / 1024**3
+print(f"wrote {out_zip}  ({size_gb:.2f} GB)")
+print(f"contents: {names}")
+print("Ready → click Output > submission.zip > Submit to Competition")
+'''
+
+
+def build_submit_kernel(out_dir: Path, adapter_name: str = "tinker_plus_5e5_full_010") -> None:
+    """Build a lightweight submission-packager kernel (no GPU, no inference)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Inject chosen adapter name
+    cell_src = SUBMIT_CELL.replace(
+        '"tinker_plus_5e5_full_010"', f'"{adapter_name}"', 1
+    )
+    cells = [
+        _markdown(
+            f"# Nemotron Submit Packager — {adapter_name}\n\n"
+            "Lightweight notebook that picks the best merged adapter from the CV kernel output "
+            "and packages it as `submission.zip` ready for **Submit to Competition**.\n\n"
+            "**No GPU required.** Attach `aleixlopez/nemotron-local-cv` as a kernel source."
+        ),
+        _code(cell_src),
+    ]
+    (out_dir / "notebook.ipynb").write_text(
+        json.dumps(_notebook(cells, internet=False), indent=1)
+    )
+    (out_dir / "kernel-metadata.json").write_text(
+        json.dumps(
+            _kernel_metadata(
+                slug=f"{KAGGLE_USER}/nemotron-submit",
+                title="Nemotron Submit Packager",
+                internet=False,
+                dataset_sources=[],
+                competition_sources=["nvidia-nemotron-model-reasoning-challenge"],
+                kernel_sources=[f"{KAGGLE_USER}/nemotron-local-cv"],
+            ),
+            indent=2,
+        )
+    )
+    print(f"built {out_dir}/notebook.ipynb + kernel-metadata.json")
+
+
 SMOKE_PROFILES = {
     "tiny":  {"sample_n": 20,   "max_steps": 5,    "label": "tiny smoke", "max_length": 2048, "packing": False},
     "smoke": {"sample_n": 200,  "max_steps": 50,   "label": "smoke", "max_length": 2048, "packing": False},
@@ -460,6 +566,7 @@ def main() -> int:
     )
     build_train_kernel(REPO_ROOT / "kaggle" / "train_kernel", **p)
     build_cv_kernel(REPO_ROOT / "kaggle" / "cv_kernel")
+    build_submit_kernel(REPO_ROOT / "kaggle" / "submit_kernel")
     return 0
 
 

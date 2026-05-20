@@ -1,0 +1,21 @@
+{
+  "id": "aleixlopez/nemotron-submit",
+  "title": "Nemotron Submit Packager",
+  "code_file": "notebook.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "false",
+  "dataset_sources": [],
+  "competition_sources": [
+    "nvidia-nemotron-model-reasoning-challenge"
+  ],
+  "kernel_sources": [
+    "aleixlopez/nemotron-local-cv"
+  ],
+  "model_sources": [
+    "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1"
+  ],
+  "machine_shape": "NvidiaRtxPro6000"
+}
