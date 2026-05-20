@@ -21,7 +21,7 @@ from nemotron_train.recipe import BASE_MODEL
 REQUIRED = ("adapter_config.json", "adapter_model.safetensors")
 
 
-def _resolve_adapter_dir(adapter_dir: Path) -> Path:
+def resolve_adapter_dir(adapter_dir: Path) -> Path:
     missing = [name for name in REQUIRED if not (adapter_dir / name).is_file()]
     if not missing:
         return adapter_dir
@@ -44,7 +44,7 @@ def build_submission_zip(
     rewrite_base_model: bool = True,
     base_model: str = BASE_MODEL,
 ) -> Path:
-    source = _resolve_adapter_dir(Path(adapter_dir))
+    source = resolve_adapter_dir(Path(adapter_dir))
     output = Path(output_zip)
     output.parent.mkdir(parents=True, exist_ok=True)
 
