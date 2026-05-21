@@ -568,7 +568,10 @@ def main() -> int:
     )
     build_train_kernel(REPO_ROOT / "kaggle" / "train_kernel", **p)
     build_cv_kernel(REPO_ROOT / "kaggle" / "cv_kernel")
-    build_submit_kernel(REPO_ROOT / "kaggle" / "submit_kernel")
+    build_submit_kernel(
+        REPO_ROOT / "kaggle" / "submit_kernel",
+        adapter_name="tinker_plus_5e5_full_005",
+    )
     return 0
 
 
