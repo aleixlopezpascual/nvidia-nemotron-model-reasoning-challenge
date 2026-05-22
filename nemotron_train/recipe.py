@@ -3,12 +3,19 @@
 Sources:
 - LoRA config: dgxchen / huikang, see docs/notebook_learnings/04_top_scoring_0_85_lb.md
 - completion_only_loss=True: waterjoe (the basic-SFT-group gap)
-- Optimizer: full-precision AdamW (NOT 8-bit), betas=(0.9, 0.95), eps=1e-8,
-  weight_decay=0, no grad clip — per huikang's hand-rolled loop
+- Optimizer: 8-bit AdamW (bitsandbytes) — saves ~5.5 GB vs fp32 on 96 GB GPU.
+  Note: the public 0.85 recipe uses full-precision AdamW, but fitting 30B on
+  a single Blackwell (96 GB) requires 8-bit optimizer states. A small quality
+  degradation is expected; promote only if CV clears the 0.86 gate.
 - LR=2e-4 linear, zero warmup
 - Effective batch=32 (micro=1, grad_accum=32) — per dgxchen ablation
   (micro-batch=2 costs ~0.01 LB)
 - ~1 epoch / ~1000 steps on the kienngx CoT corpus
+
+QLoRA path: when VRAM is insufficient for bf16 base (63.6 GB), set use_qlora=True
+in trainer.train(). This loads the base in NF4 4-bit (~15 GB), freeing ~48 GB of
+VRAM for activations. Quality may degrade slightly vs bf16; only promote adapters
+that clear the CV gate.
 """
 
 from __future__ import annotations
@@ -52,7 +59,7 @@ TRAINING_DEFAULTS: dict = {
     "adam_beta1": 0.9,
     "adam_beta2": 0.95,
     "adam_epsilon": 1e-8,
-    "optim": "adamw_torch",  # full-precision AdamW (NOT 8-bit)
+    "optim": "adamw_bnb_8bit",  # 8-bit AdamW: saves ~5.5 GB vs fp32; needed to fit 30B on 96 GB
 
     # Schedule
     "per_device_train_batch_size": 1,
@@ -84,4 +91,16 @@ BASE_MODEL_KWARGS: dict = {
     "attn_implementation": "eager",
     "trust_remote_code": True,
     "low_cpu_mem_usage": True,
+}
+
+# bitsandbytes 4-bit config for QLoRA on memory-constrained GPUs (e.g. single
+# Blackwell 96 GB, where bf16 base uses 63.6 GB and leaves too little for
+# Mamba SSM backward activations).
+# Use NF4 (best quality for LoRA fine-tuning) with bf16 compute — gradient math
+# stays in bf16, only the stored weights are 4-bit. Double quant saves ~0.5 GB.
+QLORA_BNB_KWARGS: dict = {
+    "load_in_4bit": True,
+    "bnb_4bit_quant_type": "nf4",
+    "bnb_4bit_compute_dtype": "bfloat16",  # string; trainer resolves to torch.bfloat16
+    "bnb_4bit_use_double_quant": True,
 }

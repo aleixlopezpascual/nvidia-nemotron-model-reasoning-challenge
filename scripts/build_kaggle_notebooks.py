@@ -125,9 +125,9 @@ subprocess.check_call([
     sys.executable, "-m", "pip", "install", "-q",
     "--no-cache-dir",
     "--no-index", "--find-links", OFFLINE_DIR,
-    "trl", "peft", "accelerate",
+    "trl", "peft", "accelerate", "bitsandbytes",
 ])
-print("trl + peft + accelerate installed from offline packages.")
+print("trl + peft + accelerate + bitsandbytes installed from offline packages.")
 '''
 
 TRAIN_CELL_CORPUS = '''\
@@ -158,7 +158,7 @@ print(f"/kaggle/working free: {free / 1024**3:.2f} GB")
 '''
 
 TRAIN_CELL_RUN_TEMPLATE = '''\
-# {label} run. Flip sample_n=None + max_steps=-1 for full corpus / ~1 epoch.
+# {label} run.
 from nemotron_train import train
 
 train(
@@ -167,8 +167,9 @@ train(
     base_model=str(BASE_MODEL_PATH),
     sample_n={sample_n},        # rows to subsample from the corpus
     max_steps={max_steps},      # cap on optimizer steps (-1 = epochs-driven)
-    max_length={max_length},    # sequence length cap; lower first for OOM safety
-    packing={packing},          # packing=False lowers average live tokens/step
+    max_length={max_length},    # sequence length cap
+    packing={packing},          # packing=False (required: eager attn incompatible with packing)
+    use_qlora={use_qlora},      # QLoRA: load base in NF4 4-bit to fit on 96 GB Blackwell
     extra_training_kwargs={{"save_strategy": "no"}},  # avoid checkpoint bloat on Kaggle disk
 )
 '''
@@ -380,6 +381,7 @@ def build_train_kernel(
     label: str,
     max_length: int,
     packing: bool,
+    use_qlora: bool = True,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     train_cell_run = TRAIN_CELL_RUN_TEMPLATE.format(
@@ -388,14 +390,15 @@ def build_train_kernel(
         max_steps=max_steps,
         max_length=max_length,
         packing=packing,
+        use_qlora=use_qlora,
     )
     cells = [
         _markdown(
             f"# Nemotron SFT Training (Kaggle / RTX PRO 6000) — {label}\n\n"
             "Runs the convergent public 0.85 SFT recipe + `completion_only_loss=True`. "
             f"Current configuration: `sample_n={sample_n}`, `max_steps={max_steps}`, "
-            f"`max_length={max_length}`, `packing={packing}`. "
-            "Edit `scripts/build_kaggle_notebooks.py` and re-run with different flags to change.\n\n"
+            f"`max_length={max_length}`, `packing={packing}`, `use_qlora={use_qlora}`. "
+            f"Edit `scripts/build_kaggle_notebooks.py` and re-run with different flags to change.\n\n"
             "Data sources required: this code dataset (`aleixlopez/nemotron-code`), the base "
             "model (`metric/nemotron-3-nano-30b-a3b-bf16/transformers/default`), and the "
             "kienngx CoT corpus (`kienngx/nemotron-30b-competition-trainingdata-cot-labels`)."
@@ -549,17 +552,21 @@ def build_submit_kernel(out_dir: Path, adapter_name: str = "tinker_plus_5e5_full
 
 
 SMOKE_PROFILES = {
-    "tiny":  {"sample_n": 20,   "max_steps": 5,    "label": "tiny smoke", "max_length": 2048, "packing": False},
-    "smoke": {"sample_n": 200,  "max_steps": 50,   "label": "smoke", "max_length": 2048, "packing": False},
-    "full":  {"sample_n": None, "max_steps": -1,   "label": "full", "max_length": 2048, "packing": False},
+    "tiny":  {"sample_n": 20,   "max_steps": 5,    "label": "tiny smoke",          "max_length": 2048, "packing": False, "use_qlora": True},
+    "smoke": {"sample_n": 200,  "max_steps": 50,   "label": "smoke",               "max_length": 2048, "packing": False, "use_qlora": True},
+    "full":  {"sample_n": None, "max_steps": 1000, "label": "qlora-8192 baseline", "max_length": 8192, "packing": False, "use_qlora": True},
 }
 
 
 def main() -> int:
     import argparse
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--profile", choices=list(SMOKE_PROFILES), default="smoke",
-                    help="Training run size: tiny (20 rows / 5 steps), smoke (200/50), full (epochs-driven)")
+    ap.add_argument(
+        "--profile",
+        choices=list(SMOKE_PROFILES),
+        default="smoke",
+        help="Training run size: tiny (20/5), smoke (200/50), full (QLoRA 8192: full data, 1000 steps, max_length 8192, QLoRA 4-bit base)",
+    )
     args = ap.parse_args()
     p = SMOKE_PROFILES[args.profile]
     print(

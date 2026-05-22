@@ -1,12 +1,16 @@
-# Master Synthesis — Public Notebook Landscape (as of 2026-05-19)
+# Master Synthesis — Public Notebook Landscape (as of 2026-05-22)
 
-Cross-cutting insights from **36 top notebooks** on the **NVIDIA Nemotron Model Reasoning Challenge**, distilled from ten thematic write-ups (`01_baseline_and_submission.md` → `10_open_progress_prize_winner.md`).
+Cross-cutting insights from **36 top notebooks** on the **NVIDIA Nemotron Model Reasoning Challenge**, distilled from ten thematic write-ups (`01_baseline_and_submission.md` → `10_open_progress_prize_winner.md`), plus focused follow-up notes.
 
 Read this first. The per-theme files are the deep references.
 
 > **Round-2 update**: After reading 16 additional notebooks (the 0.86 LB set, novel methods, per-puzzle solvers, local CV tooling), the strategic picture sharpened considerably. See "0.85 → 0.86 → 0.87" section below.
 
 > **Round-3 update (2026-05-19)**: Tong Hui Kang (`tonghuikang`) — the author of the `nemotron-master` corpus AND the Open Progress Prize winner — published his full write-up. This is the ground truth for the 0.85 recipe. Key corrections to our earlier analysis are marked **[CORRECTED]** below. See `10_open_progress_prize_winner.md` for the full deep-dive.
+
+> **Round-4 update (2026-05-22)**: Added `11_memory_and_throughput_bounds.md` from a Kaggle discussion on theoretical memory/throughput limits for Nemotron LoRA at seq=8192. The note now includes a practical operating envelope for **NVIDIA RTX PRO 6000 Blackwell (96GB)**. Use it as a constraints guide, not as a standalone recipe.
+
+> **Round-5 update (2026-05-22)**: Added `12_competition_engineering_masterclass.md` — a consolidated reference of the five core engineering breakthroughs that separated the gold-medal tier: deterministic SFT, min-logprob optimisation, completion-only masking, fused cross-entropy, and post-training SVD. **Read this before starting any new training run.**
 
 ---
 
