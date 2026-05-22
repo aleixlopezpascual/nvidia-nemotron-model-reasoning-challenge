@@ -29,21 +29,26 @@ def set_cuda_alloc_env() -> None:
 
 
 def _pure_rmsnorm_fn(x, weight, bias=None, z=None, eps=1e-5,
-                     group_size=None, norm_before_gate=True, upcast=True):
-    """Pure-PyTorch rmsnorm_fn — same math the mamba_ssm.triton kernel does."""
+                     group_size=None, norm_before_gate=True, upcast=False):
+    """Pure-PyTorch rmsnorm_fn — same math the mamba_ssm.triton kernel does.
+
+    upcast=False (default): stay in bf16 throughout — critical for fitting
+    Nemotron-30B training in 96 GB. fp32 copies of 5376-wide Mamba hidden
+    states at 4096+ sequence length exhaust VRAM during the backward pass.
+    """
     import torch
     import torch.nn.functional as F
     dtype = x.dtype
-    if upcast:
-        x = x.float()
+    # Always work in bf16; the numerical difference vs fp32 norm is negligible
+    # for LoRA SFT and avoids large transient fp32 tensors on long sequences.
     variance = x.pow(2).mean(-1, keepdim=True)
     x_normed = x * torch.rsqrt(variance + eps)
-    out = x_normed * weight.float()
+    out = x_normed * weight.to(dtype)
     if bias is not None:
-        out = out + bias.float()
+        out = out + bias.to(dtype)
     if z is not None:
-        out = out * F.silu(z.float())
-    return out.to(dtype)
+        out = out * F.silu(z.to(dtype))
+    return out
 
 
 def install_mamba_ssm_stub() -> None:

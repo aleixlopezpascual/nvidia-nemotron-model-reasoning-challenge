@@ -1,15 +1,19 @@
 """Main training function: load base + LoRA, build dataset, run TRL SFTTrainer.
 
 Designed for a single GPU instance (A100 80 GB / H100 / RTX PRO 6000 Blackwell).
-30B base in bf16 needs ~60 GB just for the weights; LoRA + activations + grad
-checkpointing easily fits in 80 GB.
+
+Two memory modes:
+- bf16 (default): 30B base in bf16 ≈ 63.6 GB; needs ~80-96 GB total. Use on H100.
+- QLoRA (use_qlora=True): base in NF4 4-bit ≈ 15 GB; fine for 96 GB Blackwell.
+  Set use_qlora=True when bf16 OOMs (static VRAM >72 GB leaves <24 GB for Mamba
+  SSM backward activations). QLoRA frees ~48 GB extra for activations.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from .recipe import BASE_MODEL, BASE_MODEL_KWARGS, LORA_CONFIG, TRAINING_DEFAULTS
+from .recipe import BASE_MODEL, BASE_MODEL_KWARGS, LORA_CONFIG, QLORA_BNB_KWARGS, TRAINING_DEFAULTS
 
 
 def train(
@@ -23,6 +27,7 @@ def train(
     sample_n: int | None = None,
     max_length: int | None = None,
     packing: bool | None = None,
+    use_qlora: bool = False,
     extra_training_kwargs: dict | None = None,
 ) -> None:
     """Run SFT and write the LoRA adapter to ``output_dir``.
@@ -37,11 +42,14 @@ def train(
         sample_n: optional row subsample (for quick iteration runs).
         max_length: optional sequence-length override for SFTConfig.
         packing: optional packing override for SFTConfig.
+        use_qlora: load the base model in NF4 4-bit (QLoRA). Reduces base-model
+            VRAM from ~63.6 GB to ~15 GB; necessary on 96 GB Blackwell where the
+            bf16 path leaves insufficient headroom for Mamba SSM activations.
         extra_training_kwargs: passed through to SFTConfig as overrides.
     """
     import torch
-    from peft import LoraConfig
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from peft import LoraConfig, prepare_model_for_kbit_training
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from trl import SFTConfig, SFTTrainer
 
     from .data import load_sft_dataset
@@ -58,14 +66,30 @@ def train(
             "training rows with `enable_thinking=True` matching the host metric."
         )
 
-    print(f"[trainer] loading base model {base_model} (bf16, eager attn)")
     model_kwargs = dict(BASE_MODEL_KWARGS)
-    model_kwargs["torch_dtype"] = torch.bfloat16
+    if use_qlora:
+        print(f"[trainer] loading base model {base_model} (QLoRA NF4 4-bit + bf16 compute)")
+        bnb_cfg_kwargs = dict(QLORA_BNB_KWARGS)
+        bnb_cfg_kwargs["bnb_4bit_compute_dtype"] = torch.bfloat16
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(**bnb_cfg_kwargs)
+        # torch_dtype must NOT be set when quantization_config is provided —
+        # bitsandbytes manages the dtype of the quantized layers internally.
+        model_kwargs.pop("torch_dtype", None)
+    else:
+        print(f"[trainer] loading base model {base_model} (bf16, eager attn)")
+        model_kwargs["torch_dtype"] = torch.bfloat16
+
     model = AutoModelForCausalLM.from_pretrained(base_model, **model_kwargs)
     # Required for LoRA training with checkpointing on PEFT-wrapped models.
     model.config.use_cache = False
-    if hasattr(model, "enable_input_require_grads"):
-        model.enable_input_require_grads()
+    if use_qlora:
+        # Freeze 4-bit layers and prepare for gradient checkpointing with kbit.
+        model = prepare_model_for_kbit_training(
+            model, use_gradient_checkpointing=True
+        )
+    else:
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
 
     _apply_nemotron_h_blackwell_patches()
 
