@@ -147,10 +147,55 @@ def set_blackwell_ptxas_env() -> None:
         pass
 
 
+
+def patch_moe_dtype_for_qlora() -> int:
+    """Fix float32/bf16 dtype mismatch in NemotronH MoE under QLoRA.
+
+    When the base model is loaded in NF4 4-bit (QLoRA), expert routing weights
+    (topk_weights) stay in float32 while expert outputs are bfloat16 (per
+    bnb_4bit_compute_dtype). Multiplying them promotes weighted_output to float32,
+    which then crashes index_add_() on the bf16 accumulator:
+
+        RuntimeError: index_add_(): self (BFloat16) and source (Float) must have
+        the same scalar type
+
+    Fix: patch the `moe` method at the class level for every loaded
+    modeling_nemotron_h class so that topk_weights are cast to hidden_states.dtype
+    before entering the accumulation loop.
+
+    Must be called AFTER the model is loaded (otherwise modeling_nemotron_h
+    hasn't been imported). Returns number of classes patched.
+    """
+    patched = 0
+    for _mod_name, mod in list(sys.modules.items()):
+        if "modeling_nemotron_h" not in _mod_name:
+            continue
+        for attr_name in list(vars(mod).keys()):
+            cls = getattr(mod, attr_name, None)
+            if cls is None or not isinstance(cls, type):
+                continue
+            if "moe" not in vars(cls):
+                continue
+            original_moe = vars(cls)["moe"]
+
+            def _make_patched(orig):
+                def _patched_moe(self, hidden_states, topk_indices, topk_weights):
+                    # Cast routing weights to hidden_states dtype (bf16) so the
+                    # weighted_output stays in bf16 and index_add_() doesn't fail.
+                    topk_weights = topk_weights.to(hidden_states.dtype)
+                    return orig(self, hidden_states, topk_indices, topk_weights)
+                return _patched_moe
+
+            cls.moe = _make_patched(original_moe)
+            patched += 1
+    return patched
+
+
 def patch_for_blackwell() -> dict:
     """Apply all post-model-load Blackwell patches. Returns a summary dict."""
     return {
         "rmsnorm_patched": patch_rmsnorm_with_pure_pytorch(),
         "fast_path_disabled": disable_nemotron_fast_path(),
+        "moe_dtype_patched": patch_moe_dtype_for_qlora(),
         "ptxas_blackwell_path": os.environ.get("TRITON_PTXAS_BLACKWELL_PATH"),
     }
