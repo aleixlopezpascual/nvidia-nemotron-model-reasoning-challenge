@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .recipe import BASE_MODEL, BASE_MODEL_KWARGS, LORA_CONFIG, QLORA_BNB_KWARGS, TRAINING_DEFAULTS
+from .recipe import BASE_MODEL, BASE_MODEL_KWARGS, LORA_CONFIG, QLORA_BNB_KWARGS, QLORA_MODULES_TO_NOT_CONVERT, TRAINING_DEFAULTS
 
 
 def train(
@@ -71,7 +71,12 @@ def train(
         print(f"[trainer] loading base model {base_model} (QLoRA NF4 4-bit + bf16 compute)")
         bnb_cfg_kwargs = dict(QLORA_BNB_KWARGS)
         bnb_cfg_kwargs["bnb_4bit_compute_dtype"] = torch.bfloat16
+        # bnb_4bit_quant_storage also needs to be a torch dtype object, not string
+        bnb_cfg_kwargs["bnb_4bit_quant_storage"] = torch.bfloat16
         model_kwargs["quantization_config"] = BitsAndBytesConfig(**bnb_cfg_kwargs)
+        # Exclude Mamba SSM layers from quantisation — they use custom CUDA
+        # kernels that bypass the bitsandbytes dequant path and crash on uint8.
+        model_kwargs["modules_to_not_convert"] = QLORA_MODULES_TO_NOT_CONVERT
         # torch_dtype must NOT be set when quantization_config is provided —
         # bitsandbytes manages the dtype of the quantized layers internally.
         model_kwargs.pop("torch_dtype", None)
