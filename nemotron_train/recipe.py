@@ -98,9 +98,20 @@ BASE_MODEL_KWARGS: dict = {
 # Mamba SSM backward activations).
 # Use NF4 (best quality for LoRA fine-tuning) with bf16 compute — gradient math
 # stays in bf16, only the stored weights are 4-bit. Double quant saves ~0.5 GB.
+#
+# bnb_4bit_quant_storage="bfloat16": stores quantized weights as bfloat16 tensors
+# (two 4-bit values packed per bf16 element). This prevents the
+# "unsigned char != BFloat16" matmul error when non-standard layer forwards
+# (e.g. Mamba SSM) encounter the raw weight tensor.
 QLORA_BNB_KWARGS: dict = {
     "load_in_4bit": True,
     "bnb_4bit_quant_type": "nf4",
     "bnb_4bit_compute_dtype": "bfloat16",  # string; trainer resolves to torch.bfloat16
     "bnb_4bit_use_double_quant": True,
+    "bnb_4bit_quant_storage": "bfloat16",  # store packed weights as bf16, not uint8
 }
+
+# Mamba SSM layers use custom CUDA kernels that call matmul directly on the raw
+# weight tensor, bypassing bitsandbytes' dequantisation kernel. Quantising them
+# causes "unsigned char != BFloat16". Keep these layers in bf16.
+QLORA_MODULES_TO_NOT_CONVERT: list = ["in_proj", "out_proj"]
