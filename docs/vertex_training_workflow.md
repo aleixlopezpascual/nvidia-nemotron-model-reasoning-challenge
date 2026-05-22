@@ -84,7 +84,23 @@ uv run accelerate launch --num_processes 8 --mixed_precision bf16 \
 
 ---
 
-## 4) Move adapters into Kaggle CV + submission flow
+## 4) Optional Stage 2: GRPO (after SFT only)
+
+Use this only after you have a strong SFT checkpoint. Treat GRPO as a small polish stage, not the primary training stage.
+
+Why this ordering:
+- SFT stabilizes output behavior/format and preserves the current baseline.
+- GRPO is better for relative quality refinement once behavior is already stable.
+- In this competition, sparse reward (final answer correctness) makes GRPO noisier than SFT.
+
+Compute guidance:
+- On smaller GPUs (e.g., L4), run GRPO only as a short experiment with strict rollout limits.
+- Prefer targeted continuation SFT first for the weak category (`equation_transformation`).
+- Promote GRPO candidates only if they beat the SFT-only checkpoint on overall CV and weak-label accuracy.
+
+---
+
+## 5) Move adapters into Kaggle CV + submission flow
 
 1. Package the candidate adapter locally if needed:
 ```bash
@@ -101,7 +117,7 @@ uv run python scripts/package_submission.py --adapter-dir /workspace/adapters/<r
 
 ---
 
-## 5) Fast troubleshooting
+## 6) Fast troubleshooting
 
 - OOM: reduce `--max-length` (first), then lower `--grad-accum`.
 - Divergence/regression: reduce `--max-steps` and checkpoint more frequently.

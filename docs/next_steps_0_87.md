@@ -10,6 +10,16 @@ If training resources are available, follow `docs/vertex_training_workflow.md` f
 ## Goal
 Get a reliable +0.01 lift (0.86 -> 0.87) with the smallest-risk sequence.
 
+## Training fallback recipe (if no-train plateaus)
+If no-train exploration stalls, use a two-stage training fallback:
+1. **Continuation SFT first** (target weak category behavior and answer stability).
+2. **Optional tiny GRPO second** (quality polish only after SFT is stable).
+
+Notes:
+- Do not replace SFT with GRPO as the first stage.
+- GRPO is higher variance under sparse-reward scoring; keep it short and compare strictly against the SFT checkpoint.
+- On smaller GPUs (like L4), prioritize SFT and treat GRPO as experimental.
+
 ## Phase 1 — Finish expanded candidate sweep (individual adapters)
 1. Run latest `aleixlopez/nemotron-local-cv` (already pushed with expanded candidates).
 2. Pull outputs and rank by:
