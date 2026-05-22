@@ -147,10 +147,16 @@ def _apply_nemotron_h_blackwell_patches() -> None:
         from blackwell_setup import (  # type: ignore
             patch_rmsnorm_with_pure_pytorch,
             disable_nemotron_fast_path,
+            patch_moe_dtype_for_qlora,
         )
     except ImportError:
         return  # blackwell_setup not on sys.path — assume not running on Blackwell
 
     n_rms = patch_rmsnorm_with_pure_pytorch()
     n_fp = disable_nemotron_fast_path()
-    print(f"[trainer] blackwell patches: rmsnorm_fn={n_rms}, is_fast_path_available=False x{n_fp}")
+    n_moe = patch_moe_dtype_for_qlora()
+    print(
+        f"[trainer] blackwell patches: rmsnorm_fn={n_rms}, "
+        f"is_fast_path_available=False x{n_fp}, "
+        f"moe_dtype_fix={n_moe}"
+    )
