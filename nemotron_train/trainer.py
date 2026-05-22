@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .recipe import BASE_MODEL, BASE_MODEL_KWARGS, LORA_CONFIG, QLORA_BNB_KWARGS, QLORA_MODULES_TO_NOT_CONVERT, TRAINING_DEFAULTS
+from .recipe import BASE_MODEL, BASE_MODEL_KWARGS, LORA_CONFIG, QLORA_BNB_KWARGS, TRAINING_DEFAULTS
 
 
 def train(
@@ -74,9 +74,11 @@ def train(
         # bnb_4bit_quant_storage also needs to be a torch dtype object, not string
         bnb_cfg_kwargs["bnb_4bit_quant_storage"] = torch.bfloat16
         model_kwargs["quantization_config"] = BitsAndBytesConfig(**bnb_cfg_kwargs)
-        # Exclude Mamba SSM layers from quantisation — they use custom CUDA
-        # kernels that bypass the bitsandbytes dequant path and crash on uint8.
-        model_kwargs["modules_to_not_convert"] = QLORA_MODULES_TO_NOT_CONVERT
+        # NOTE: modules_to_not_convert is NOT passed here — NemotronHForCausalLM
+        # uses trust_remote_code and its __init__ rejects unknown kwargs.
+        # Instead, bnb_4bit_quant_storage=bfloat16 ensures quantized weight
+        # tensors have dtype=bfloat16 (not uint8), preventing the
+        # "unsigned char != BFloat16" matmul error in Mamba custom kernels.
         # torch_dtype must NOT be set when quantization_config is provided —
         # bitsandbytes manages the dtype of the quantized layers internally.
         model_kwargs.pop("torch_dtype", None)
