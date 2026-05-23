@@ -315,14 +315,15 @@ if per_label.exists():
     print(top.to_string(index=False))
 '''
 
-# Merge submission kernel: evaluates all merges, finds best, packages as submission.zip
+# Merge submission kernel: evaluates all merges SEQUENTIALLY to avoid OOM
 MERGE_SUBMIT_CELL_RUN_EVAL = '''\
 # Evaluate all merge experiments from merge_experiments.csv.
-# This is the "Phase 2: Merge Search" kernel — runs full CV on all blends.
+# SEQUENTIAL mode (one adapter at a time) to avoid OOM on Blackwell.
 import sys
 from pathlib import Path
 import pandas as pd
 from nemotron_local_cv import __main__ as cv_cli
+import gc
 
 SCRIPTS_ROOT = Path(CODE_ROOT) / "scripts"
 if SCRIPTS_ROOT.is_dir():
@@ -343,30 +344,62 @@ materialize_merge_experiments(
 
 assert merged_manifest.exists(), f"merge manifest not created at {merged_manifest}"
 
-summary_out = Path("/kaggle/working/merge_eval_summary.csv")
-debug_dir = Path("/kaggle/working/merge_debug")
-if debug_dir.exists():
-    import shutil
-    shutil.rmtree(debug_dir)
+# Read manifest to get list of adapters
+df_manifest = pd.read_csv(merged_manifest)
+print(f"Created {len(df_manifest)} merge adapters")
 
-cmd = [
-    "nemotron_local_cv",
-    "--adapter-manifest",
-    str(merged_manifest),
-    "--summary-out",
-    str(summary_out),
-    "--debug-dir",
-    str(debug_dir),
-    "--debug",
-    "--val",
-    str(VAL_SPLIT),
-    "--model",
-    str(BASE_MODEL_PATH),
-]
-print("$ " + " ".join(cmd))
-sys.argv = cmd
-rc = cv_cli.main()
-assert rc == 0, f"nemotron_local_cv exited with {rc}"
+summary_out = Path("/kaggle/working/merge_eval_summary.csv")
+all_results = []
+
+# Evaluate SEQUENTIALLY to avoid OOM
+for idx, (merge_name, adapter_path) in enumerate(zip(df_manifest["name"], df_manifest["adapter"])):
+    print(f"\\n[{idx+1}/{len(df_manifest)}] Evaluating {merge_name}...")
+    
+    # Create single-row manifest for this merge
+    single_manifest = Path(f"/kaggle/working/merge_manifest_{idx}.csv")
+    pd.DataFrame({
+        "name": [merge_name],
+        "adapter": [adapter_path],
+    }).to_csv(single_manifest, index=False)
+    
+    # Run CV on just this adapter
+    summary_single = Path(f"/kaggle/working/merge_summary_{idx}.csv")
+    cmd = [
+        "nemotron_local_cv",
+        "--adapter-manifest",
+        str(single_manifest),
+        "--summary-out",
+        str(summary_single),
+        "--debug",
+        "--val",
+        str(VAL_SPLIT),
+        "--model",
+        str(BASE_MODEL_PATH),
+    ]
+    
+    sys.argv = cmd
+    rc = cv_cli.main()
+    
+    if rc == 0 and summary_single.exists():
+        result = pd.read_csv(summary_single)
+        all_results.append(result)
+        print(f"✓ {merge_name}: {result[\'accuracy\'].iloc[0]:.4f}")
+    else:
+        print(f"⚠️  {merge_name} failed, skipping")
+    
+    # Clean up to free memory
+    gc.collect()
+    import torch
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+# Combine all results
+if all_results:
+    combined = pd.concat(all_results, ignore_index=True)
+    combined.to_csv(summary_out, index=False)
+    print(f"\\n✓ Evaluation complete: {summary_out}")
+else:
+    print(f"\\n❌ No evaluations completed!")
 
 print(f"wrote {summary_out}")
 '''
