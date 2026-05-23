@@ -1,0 +1,9 @@
+name,status,error
+tinker_plus_5e5_full_005,ok,
+tinker_plus_5e5_full_010,ok,
+tinker_plus_1e5_full_005,ok,
+tinker_plus_1e5_full_010,ok,
+tinker_plus_5e5_mamba_010,error,"ValueError: no overlapping tensors matched include_modules=['in_proj', 'out_proj']"
+tinker_plus_1e5_mamba_010,error,"ValueError: no overlapping tensors matched include_modules=['in_proj', 'out_proj']"
+tinker_plus_5e5_attn_010,error,"ValueError: no overlapping tensors matched include_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj']"
+tinker_plus_1e5_attn_010,error,"ValueError: no overlapping tensors matched include_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj']"
