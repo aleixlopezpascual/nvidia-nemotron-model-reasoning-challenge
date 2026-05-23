@@ -316,14 +316,17 @@ if per_label.exists():
 '''
 
 # Merge submission kernel: evaluates all merges SEQUENTIALLY to avoid OOM
+# NEW: Also materialize one merge at a time (not all 9 upfront)
 MERGE_SUBMIT_CELL_RUN_EVAL = '''\
 # Evaluate all merge experiments from merge_experiments.csv.
-# SEQUENTIAL mode (one adapter at a time) to avoid OOM on Blackwell.
+# ULTRA-EFFICIENT: Materialize and evaluate ONE merge at a time
+# No batch operations, minimal disk usage, minimal RAM
 import sys
 from pathlib import Path
 import pandas as pd
 from nemotron_local_cv import __main__ as cv_cli
 import gc
+import shutil
 
 SCRIPTS_ROOT = Path(CODE_ROOT) / "scripts"
 if SCRIPTS_ROOT.is_dir():
@@ -333,44 +336,52 @@ from materialize_merge_experiments import materialize_merge_experiments
 merge_plan = Path(CODE_ROOT) / "data" / "merge_experiments.csv"
 assert merge_plan.exists(), f"merge_experiments.csv not found at {merge_plan}"
 
-merged_root = Path("/kaggle/working/merged_adapters_phase2")
-merged_manifest = Path("/kaggle/working/merged_adapter_manifest_phase2.csv")
-print(f"merge plan: {merge_plan}")
-materialize_merge_experiments(
-    experiments_csv=merge_plan,
-    output_root=merged_root,
-    manifest_out=merged_manifest,
-)
-
-assert merged_manifest.exists(), f"merge manifest not created at {merged_manifest}"
-
-# Read manifest to get list of adapters
-df_manifest = pd.read_csv(merged_manifest)
-print(f"Created {len(df_manifest)} merge adapters")
+# Read the merge plan
+df_plan = pd.read_csv(merge_plan)
+print(f"Merge plan loaded: {len(df_plan)} experiments")
 
 summary_out = Path("/kaggle/working/merge_eval_summary.csv")
 all_results = []
 
-# Evaluate SEQUENTIALLY to avoid OOM
-for idx, (merge_name, adapter_path) in enumerate(zip(df_manifest["name"], df_manifest["adapter"])):
-    print(f"\\n[{idx+1}/{len(df_manifest)}] Evaluating {merge_name}...")
+# Evaluate SEQUENTIALLY: materialize one at a time, then delete
+for idx, (merge_name, base_adapter, donor_adapter, donor_weight, include_modules) in enumerate(
+    zip(df_plan["name"], df_plan["base_adapter"], df_plan["donor_adapter"], 
+        df_plan["donor_weight"], df_plan["include_modules"])
+):
+    print(f"\\n[{idx+1}/{len(df_plan)}] Processing {merge_name}...")
     
-    # Create single-row manifest for this merge
-    single_manifest = Path(f"/kaggle/working/merge_manifest_{idx}.csv")
+    # Create single-merge experiment CSV
+    single_experiment = Path(f"/kaggle/working/single_experiment_{idx}.csv")
     pd.DataFrame({
         "name": [merge_name],
-        "adapter": [adapter_path],
-    }).to_csv(single_manifest, index=False)
+        "base_adapter": [base_adapter],
+        "donor_adapter": [donor_adapter],
+        "donor_weight": [donor_weight],
+        "include_modules": [include_modules if pd.notna(include_modules) else ""],
+    }).to_csv(single_experiment, index=False)
     
-    # Run CV on just this adapter
-    summary_single = Path(f"/kaggle/working/merge_summary_{idx}.csv")
+    # Materialize just this one merge
+    merged_dir = Path(f"/kaggle/working/merged_{idx}")
+    merged_manifest = Path(f"/kaggle/working/manifest_{idx}.csv")
+    
+    print(f"  Materializing {merge_name}...")
+    materialize_merge_experiments(
+        experiments_csv=single_experiment,
+        output_root=merged_dir,
+        manifest_out=merged_manifest,
+    )
+    
+    assert merged_manifest.exists(), f"Manifest not created for {merge_name}"
+    
+    # Evaluate just this merge
+    print(f"  Evaluating {merge_name}...")
+    summary_single = Path(f"/kaggle/working/result_{idx}.csv")
     cmd = [
         "nemotron_local_cv",
         "--adapter-manifest",
-        str(single_manifest),
+        str(merged_manifest),
         "--summary-out",
         str(summary_single),
-        "--debug",
         "--val",
         str(VAL_SPLIT),
         "--model",
@@ -383,25 +394,40 @@ for idx, (merge_name, adapter_path) in enumerate(zip(df_manifest["name"], df_man
     if rc == 0 and summary_single.exists():
         result = pd.read_csv(summary_single)
         all_results.append(result)
-        print(f"✓ {merge_name}: {result[\'accuracy\'].iloc[0]:.4f}")
+        acc = result["accuracy"].iloc[0]
+        print(f"  ✓ {merge_name}: {acc:.4f}")
     else:
-        print(f"⚠️  {merge_name} failed, skipping")
+        print(f"  ⚠️  {merge_name} evaluation failed")
     
-    # Clean up to free memory
+    # Delete materialized merge to free disk space
+    if merged_dir.exists():
+        shutil.rmtree(merged_dir)
+        print(f"  Cleaned up {merged_dir}")
+    
+    # Clean up temp files
+    for temp_file in [single_experiment, merged_manifest, summary_single]:
+        if temp_file.exists():
+            temp_file.unlink()
+    
+    # Free GPU memory
     gc.collect()
     import torch
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    
+    print(f"  Memory freed")
 
 # Combine all results
+print(f"\\nCombining {len(all_results)} results...")
 if all_results:
     combined = pd.concat(all_results, ignore_index=True)
     combined.to_csv(summary_out, index=False)
-    print(f"\\n✓ Evaluation complete: {summary_out}")
+    print(f"✓ Evaluation complete: {summary_out}")
+    print("\\nFinal Rankings:")
+    print(combined.sort_values("accuracy", ascending=False).to_string(index=False))
 else:
-    print(f"\\n❌ No evaluations completed!")
-
-print(f"wrote {summary_out}")
+    print(f"❌ No evaluations completed!")
+    raise RuntimeError("All merge evaluations failed")
 '''
 
 MERGE_SUBMIT_CELL_RANK_PICKS = '''\
@@ -707,41 +733,139 @@ def build_submit_kernel(out_dir: Path, adapter_name: str = "tinker_plus_5e5_full
     print(f"built {out_dir}/notebook.ipynb + kernel-metadata.json")
 
 
-def build_merge_submit_kernel(out_dir: Path) -> None:
-    """Build the Phase 2 merge search + submission kernel (with GPU for eval + packaging)."""
+def build_single_merge_kernel(out_dir: Path, merge_name: str, base_adapter: str, 
+                             donor_adapter: str, donor_weight: float, 
+                             include_modules: str = "") -> None:
+    """Build a single-merge evaluation + submission kernel."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Escape module list for Python string
+    modules_str = include_modules if include_modules else ""
+    
+    merge_eval_cell = f'''\
+# Single merge: {merge_name}
+import sys
+from pathlib import Path
+import pandas as pd
+from nemotron_local_cv import __main__ as cv_cli
+import zipfile
+
+SCRIPTS_ROOT = Path(CODE_ROOT) / "scripts"
+if SCRIPTS_ROOT.is_dir():
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+from materialize_merge_experiments import materialize_merge_experiments
+
+# Create single-merge experiment
+merge_name = "{merge_name}"
+base_adapter = r"{base_adapter}"
+donor_adapter = r"{donor_adapter}"
+donor_weight = {donor_weight}
+include_modules = r"{modules_str}"
+
+experiment_csv = Path("/kaggle/working/experiment.csv")
+pd.DataFrame({{
+    "name": [merge_name],
+    "base_adapter": [base_adapter],
+    "donor_adapter": [donor_adapter],
+    "donor_weight": [donor_weight],
+    "include_modules": [include_modules if include_modules else ""],
+}}).to_csv(experiment_csv, index=False)
+
+# Materialize
+merged_root = Path("/kaggle/working/merged_adapter")
+merged_manifest = Path("/kaggle/working/manifest.csv")
+print(f"Materializing {{merge_name}}...")
+materialize_merge_experiments(
+    experiments_csv=experiment_csv,
+    output_root=merged_root,
+    manifest_out=merged_manifest,
+)
+
+# Evaluate
+print(f"Evaluating {{merge_name}}...")
+summary_out = Path("/kaggle/working/eval_summary.csv")
+cmd = [
+    "nemotron_local_cv",
+    "--adapter-manifest",
+    str(merged_manifest),
+    "--summary-out",
+    str(summary_out),
+    "--val",
+    str(VAL_SPLIT),
+    "--model",
+    str(BASE_MODEL_PATH),
+]
+sys.argv = cmd
+rc = cv_cli.main()
+if rc != 0:
+    print(f"ERROR: Evaluation failed with code {{rc}}")
+    exit(1)
+
+# Read result
+df = pd.read_csv(summary_out)
+accuracy = df["accuracy"].iloc[0]
+print(f"✓ {{merge_name}}: {{accuracy:.4f}}")
+
+# Package merge as submission.zip
+adapter_dir = merged_root / merge_name
+REQUIRED = ["adapter_config.json", "adapter_model.safetensors"]
+missing = [f for f in REQUIRED if not (adapter_dir / f).is_file()]
+if missing:
+    print(f"ERROR: Missing files: {{missing}}")
+    exit(1)
+
+submission_zip = Path("/kaggle/working/submission.zip")
+with zipfile.ZipFile(submission_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+    for fname in REQUIRED:
+        zf.write(adapter_dir / fname, arcname=fname)
+
+size_mb = submission_zip.stat().st_size / 1024 / 1024
+print(f"✓ Packaged {{submission_zip}} ({{size_mb:.2f}} MB)")
+print(f"✓ Ready for submission!")
+'''
+    
     cells = [
         _markdown(
-            "# Nemotron Phase 2: Merge Search + Submit\n\n"
-            "**Phase 2: Tactical adapter exploration.** "
-            "Evaluates all merge experiments from `data/merge_experiments.csv` against the 600-row val split. "
-            "Ranks blends by accuracy, packages the best as `submission.zip`.\n\n"
-            "**Attach:** this code dataset, the base model. "
-            "All merge sources (Tinker, kienngx variants) must be published on Kaggle Models."
+            f"# Nemotron Merge Evaluation: {merge_name}\n\n"
+            f"Single-merge evaluation kernel.\n\n"
+            f"**Merge:** {merge_name}\n"
+            f"**Base:** Tinker\n"
+            f"**Donor:** {donor_adapter.split('/')[-2]}\n"
+            f"**Weight:** {donor_weight}\n"
+            f"**Modules:** {include_modules if include_modules else '(all)'}"
         ),
         _code(CELL_ENV_BEFORE_TORCH),
         _code(CELL_BLACKWELL_PREMODEL),
         _code(CV_CELL_DEPS),
         _code(CELL_RESOLVE_PATHS),
-        _code(MERGE_SUBMIT_CELL_RUN_EVAL),
-        _code(MERGE_SUBMIT_CELL_RANK_PICKS),
-        _code(MERGE_SUBMIT_CELL_PACKAGE),
+        _code(merge_eval_cell),
     ]
+    
     (out_dir / "notebook.ipynb").write_text(json.dumps(_notebook(cells, internet=False), indent=1))
+    
+    # Build model sources (filter out empty strings)
+    model_srcs = [BASE_MODEL_HANDLE]
+    if base_adapter and "/" in base_adapter:
+        model_srcs.append(base_adapter.split('/')[0])
+    if donor_adapter and "/" in donor_adapter:
+        model_srcs.append(donor_adapter.split('/')[0])
+    model_srcs = [s for s in model_srcs if s]  # Remove empty strings
+    
     (out_dir / "kernel-metadata.json").write_text(
         json.dumps(
             _kernel_metadata(
-                slug=f"{KAGGLE_USER}/nemotron-merge-search",
-                title="Nemotron Phase 2: Merge Search + Submit",
+                slug=f"{KAGGLE_USER}/nemotron-merge-{merge_name.lower()}",
+                title=f"Nemotron Merge: {merge_name}",
                 internet=False,
                 dataset_sources=[CODE_DATASET, OFFLINE_PACKAGES_DATASET],
                 competition_sources=["nvidia-nemotron-model-reasoning-challenge"],
-                model_sources=[BASE_MODEL_HANDLE, *TRIAGE_MODEL_SOURCES],
+                model_sources=model_srcs,
             ),
             indent=2,
         )
     )
-    print(f"built {out_dir}/notebook.ipynb + kernel-metadata.json")
+    print(f"  ✓ {out_dir.name}")
+
 
 
 SMOKE_PROFILES = {
@@ -772,8 +896,23 @@ def main() -> int:
         REPO_ROOT / "kaggle" / "submit_kernel",
         adapter_name="tinker_plus_5e5_full_005",
     )
-    # Phase 2: Merge search + submit kernel
-    build_merge_submit_kernel(REPO_ROOT / "kaggle" / "merge_search_kernel")
+    
+    # Phase 2: Build individual merge kernels (no batch)
+    print("\nBuilding 9 individual merge kernels...")
+    merge_experiments_csv = REPO_ROOT / "data" / "merge_experiments.csv"
+    df_merges = __import__("pandas").read_csv(merge_experiments_csv)
+    
+    for idx, row in df_merges.iterrows():
+        merge_name = row["name"]
+        base_adapter = row["base_adapter"]
+        donor_adapter = row["donor_adapter"]
+        donor_weight = row["donor_weight"]
+        include_modules = row["include_modules"] if "include_modules" in row and __import__("pandas").notna(row["include_modules"]) else ""
+        
+        kernel_dir = REPO_ROOT / "kaggle" / f"merge_{merge_name}"
+        build_single_merge_kernel(kernel_dir, merge_name, base_adapter, donor_adapter, donor_weight, include_modules)
+    
+    print("\n✓ All 9 merge kernels built!")
     return 0
 
 
