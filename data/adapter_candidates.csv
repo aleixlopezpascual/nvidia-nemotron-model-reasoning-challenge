@@ -6,3 +6,4 @@ kienngx_1e-5,/kaggle/input/models/kienngx/nemotron-nano-30b-trained/triton/1e-5/
 kienngx_1e-5_batch2_workers8,/kaggle/input/models/kienngx/nemotron-nano-30b-trained/triton/1e-5-batch-2-workers-8/1
 kienngx_batch2_lr1e-5_workers8,/kaggle/input/models/kienngx/nemotron-nano-30b-trained/triton/batch2-lr1e-workers8/1
 kienngx_gradaccum1_workers8_maxlen4096_lr1e-5,/kaggle/input/models/kienngx/nemotron-nano-30b-trained/triton/grad-accum1-workers8-maxlen-4096-lr1e-5/1
+our_latest_qlora,/kaggle/input/aleixlopez/nemotron-sft-training/adapter/final
