@@ -35,6 +35,15 @@ TRIAGE_MODEL_SOURCES = [
     "kienngx/nemotron-nano-30b-trained/triton/grad-accum1-workers8-maxlen-4096-lr1e-5/1",
 ]
 
+
+def _model_handle_from_mount_path(path: str) -> str | None:
+    """Convert '/kaggle/input/models/<handle>' mount path into Kaggle model handle."""
+    prefix = "/kaggle/input/models/"
+    if isinstance(path, str) and path.startswith(prefix):
+        handle = path[len(prefix):].strip("/")
+        return handle or None
+    return None
+
 # ----------------------------------------------------------------------------
 # Reusable cell snippets
 # ----------------------------------------------------------------------------
@@ -746,6 +755,7 @@ def build_single_merge_kernel(out_dir: Path, merge_name: str, base_adapter: str,
 # Single merge: {merge_name}
 import sys
 from pathlib import Path
+import csv
 import pandas as pd
 from nemotron_local_cv import __main__ as cv_cli
 import zipfile
@@ -753,7 +763,7 @@ import zipfile
 SCRIPTS_ROOT = Path(CODE_ROOT) / "scripts"
 if SCRIPTS_ROOT.is_dir():
     sys.path.insert(0, str(SCRIPTS_ROOT))
-from materialize_merge_experiments import materialize_merge_experiments
+from merge_adapters import merge_adapters
 
 # Create single-merge experiment
 merge_name = "{merge_name}"
@@ -762,24 +772,42 @@ donor_adapter = r"{donor_adapter}"
 donor_weight = {donor_weight}
 include_modules = r"{modules_str}"
 
-experiment_csv = Path("/kaggle/working/experiment.csv")
-pd.DataFrame({{
-    "name": [merge_name],
-    "base_adapter": [base_adapter],
-    "donor_adapter": [donor_adapter],
-    "donor_weight": [donor_weight],
-    "include_modules": [include_modules if include_modules else ""],
-}}).to_csv(experiment_csv, index=False)
+print(f"base_adapter exists={{Path(base_adapter).is_dir()}}: {{base_adapter}}")
+print(f"donor_adapter exists={{Path(donor_adapter).is_dir()}}: {{donor_adapter}}")
+print(f"include_modules={{include_modules or '(all)'}}")
 
-# Materialize
 merged_root = Path("/kaggle/working/merged_adapter")
-merged_manifest = Path("/kaggle/working/manifest.csv")
+merged_root.mkdir(parents=True, exist_ok=True)
+adapter_dir = merged_root / merge_name
+
+# Materialize directly so any failure is visible in the notebook traceback.
 print(f"Materializing {{merge_name}}...")
-materialize_merge_experiments(
-    experiments_csv=experiment_csv,
-    output_root=merged_root,
-    manifest_out=merged_manifest,
-)
+try:
+    adapter_dir = merge_adapters(
+        base_dir=base_adapter,
+        donor_dir=donor_adapter,
+        output_dir=adapter_dir,
+        donor_weight=donor_weight,
+        include_modules=tuple(m.strip() for m in include_modules.split(",") if m.strip()),
+    )
+except ValueError as exc:
+    if "no overlapping tensors matched include_modules=" not in str(exc):
+        raise
+    print(f"WARNING: {{exc}}")
+    print("Falling back to full merge with include_modules=()")
+    adapter_dir = merge_adapters(
+        base_dir=base_adapter,
+        donor_dir=donor_adapter,
+        output_dir=adapter_dir,
+        donor_weight=donor_weight,
+        include_modules=(),
+    )
+
+merged_manifest = Path("/kaggle/working/manifest.csv")
+with merged_manifest.open("w", newline="") as fh:
+    writer = csv.DictWriter(fh, fieldnames=["name", "adapter"])
+    writer.writeheader()
+    writer.writerow({{"name": merge_name, "adapter": str(adapter_dir)}})
 
 # Evaluate
 print(f"Evaluating {{merge_name}}...")
@@ -798,21 +826,23 @@ cmd = [
 sys.argv = cmd
 rc = cv_cli.main()
 if rc != 0:
-    print(f"ERROR: Evaluation failed with code {{rc}}")
-    exit(1)
+    raise RuntimeError(f"Evaluation failed with code {{rc}}")
 
 # Read result
 df = pd.read_csv(summary_out)
-accuracy = df["accuracy"].iloc[0]
+if "accuracy" in df.columns:
+    accuracy = df["accuracy"].iloc[0]
+elif "overall_accuracy" in df.columns:
+    accuracy = df["overall_accuracy"].iloc[0]
+else:
+    raise KeyError(f"expected accuracy column in {{list(df.columns)}}")
 print(f"✓ {{merge_name}}: {{accuracy:.4f}}")
 
 # Package merge as submission.zip
-adapter_dir = merged_root / merge_name
 REQUIRED = ["adapter_config.json", "adapter_model.safetensors"]
 missing = [f for f in REQUIRED if not (adapter_dir / f).is_file()]
 if missing:
-    print(f"ERROR: Missing files: {{missing}}")
-    exit(1)
+    raise RuntimeError(f"Missing files: {{missing}}")
 
 submission_zip = Path("/kaggle/working/submission.zip")
 with zipfile.ZipFile(submission_zip, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -843,13 +873,13 @@ print(f"✓ Ready for submission!")
     
     (out_dir / "notebook.ipynb").write_text(json.dumps(_notebook(cells, internet=False), indent=1))
     
-    # Build model sources (filter out empty strings)
+    # Ensure all model mounts referenced in notebook code are attached.
     model_srcs = [BASE_MODEL_HANDLE]
-    if base_adapter and "/" in base_adapter:
-        model_srcs.append(base_adapter.split('/')[0])
-    if donor_adapter and "/" in donor_adapter:
-        model_srcs.append(donor_adapter.split('/')[0])
-    model_srcs = [s for s in model_srcs if s]  # Remove empty strings
+    for adapter_path in (base_adapter, donor_adapter):
+        handle = _model_handle_from_mount_path(adapter_path)
+        if handle:
+            model_srcs.append(handle)
+    model_srcs = sorted(set(model_srcs))
     
     (out_dir / "kernel-metadata.json").write_text(
         json.dumps(

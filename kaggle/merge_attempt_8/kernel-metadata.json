@@ -1,0 +1,23 @@
+{
+  "id": "aleixlopez/nemotron-eval-merge-8",
+  "title": "Nemotron Eval Merge 8",
+  "code_file": "notebook.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "false",
+  "enable_internet": "false",
+  "dataset_sources": [
+    "aleixlopez/nemotron-code",
+    "dennisfong/nvidia-nemotron-offline-packages"
+  ],
+  "competition_sources": [
+    "nvidia-nemotron-model-reasoning-challenge"
+  ],
+  "kernel_sources": [],
+  "model_sources": [
+    "kienngx/nemotron-nano-30b-trained/triton/5e-5/1",
+    "kienngx/nemotron-nano-30b-trained/triton/tinker-adapter/1",
+    "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1"
+  ]
+}

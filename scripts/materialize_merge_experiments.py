@@ -67,19 +67,24 @@ def materialize_merge_experiments(
         manifest_rows.append({"name": name, "adapter": str(out_dir)})
         report_rows.append({"name": name, "status": "ok", "error": ""})
 
-    if not manifest_rows:
-        raise RuntimeError("no merge experiments completed successfully")
-
-    with manifest_path.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=["name", "adapter"])
-        writer.writeheader()
-        writer.writerows(manifest_rows)
-
     report_path = manifest_path.with_name(f"{manifest_path.stem}_report.csv")
     with report_path.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=["name", "status", "error"])
         writer.writeheader()
         writer.writerows(report_rows)
+
+    if not manifest_rows:
+        errors = [r["error"] for r in report_rows if r["status"] == "error"][:3]
+        error_summary = "; ".join(errors) if errors else "unknown error"
+        raise RuntimeError(
+            "no merge experiments completed successfully; "
+            f"see report at {report_path}: {error_summary}"
+        )
+
+    with manifest_path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=["name", "adapter"])
+        writer.writeheader()
+        writer.writerows(manifest_rows)
 
     return output_root, manifest_path
 
