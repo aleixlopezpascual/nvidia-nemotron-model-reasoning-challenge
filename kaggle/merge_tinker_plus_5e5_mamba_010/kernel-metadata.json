@@ -16,6 +16,8 @@
   ],
   "kernel_sources": [],
   "model_sources": [
+    "kienngx/nemotron-nano-30b-trained/triton/5e-5/1",
+    "kienngx/nemotron-nano-30b-trained/triton/tinker-adapter/1",
     "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1"
   ],
   "machine_shape": "NvidiaRtxPro6000"
