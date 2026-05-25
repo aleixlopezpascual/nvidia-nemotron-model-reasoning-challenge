@@ -99,12 +99,16 @@ def val_csv(tmp_path: Path) -> Path:
 def test_cli_roundtrip_with_debug(tmp_path, monkeypatch, capsys, val_csv):
     monkeypatch.setattr(host_metric, "generate_predictions", _stub_generate_predictions)
     monkeypatch.chdir(tmp_path)
+    adapter_dir = tmp_path / "adapter_single"
+    adapter_dir.mkdir()
+    (adapter_dir / "adapter_config.json").write_text("{}")
+    (adapter_dir / "adapter_model.safetensors").write_text("fake")
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "nemotron_local_cv",
-            "--adapter", "/fake/adapter/path",
+            "--adapter", str(adapter_dir),
             "--val", str(val_csv),
             "--model", "fake-model-id",
             "--debug",
@@ -146,12 +150,16 @@ def test_cli_roundtrip_with_debug(tmp_path, monkeypatch, capsys, val_csv):
 def test_cli_roundtrip_without_debug(tmp_path, monkeypatch, capsys, val_csv):
     monkeypatch.setattr(host_metric, "generate_predictions", _stub_generate_predictions)
     monkeypatch.chdir(tmp_path)
+    adapter_dir = tmp_path / "adapter_single"
+    adapter_dir.mkdir()
+    (adapter_dir / "adapter_config.json").write_text("{}")
+    (adapter_dir / "adapter_model.safetensors").write_text("fake")
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "nemotron_local_cv",
-            "--adapter", "/fake/adapter/path",
+            "--adapter", str(adapter_dir),
             "--val", str(val_csv),
             "--model", "fake-model-id",
         ],
@@ -193,19 +201,28 @@ def test_cli_rejects_missing_columns(tmp_path, monkeypatch, val_csv):
 
 
 def test_cli_batch_manifest_writes_ranked_summary(tmp_path, monkeypatch, capsys, val_csv):
+    alpha = tmp_path / "adapter_alpha"
+    alpha.mkdir()
+    (alpha / "adapter_config.json").write_text("{}")
+    (alpha / "adapter_model.safetensors").write_text("fake")
+    beta = tmp_path / "adapter_beta"
+    beta.mkdir()
+    (beta / "adapter_config.json").write_text("{}")
+    (beta / "adapter_model.safetensors").write_text("fake")
+
     def _stub_score(*args, **kwargs):
         submission = kwargs.get("submission", args[1] if len(args) > 1 else None)
         adapter = submission["prediction"].iloc[0]
         return {
-            "/fake/adapter/beta": 0.55,
-            "/fake/adapter/alpha": 0.83,
+            str(beta): 0.55,
+            str(alpha): 0.83,
         }[adapter]
 
     manifest = tmp_path / "manifest.csv"
     pd.DataFrame(
         [
-            {"name": "beta", "adapter": "/fake/adapter/beta"},
-            {"name": "alpha", "adapter": "/fake/adapter/alpha"},
+            {"name": "beta", "adapter": str(beta)},
+            {"name": "alpha", "adapter": str(alpha)},
         ]
     ).to_csv(manifest, index=False)
 
@@ -285,3 +302,48 @@ def test_cli_batch_manifest_resolves_nested_adapter_path(
 
     out = capsys.readouterr().out
     assert "resolved adapter path:" in out
+
+
+def test_cli_batch_manifest_skips_missing_adapter_path(
+    tmp_path, monkeypatch, capsys, val_csv
+):
+    called = {"score": 0}
+
+    def _stub_score(*args, **kwargs):
+        called["score"] += 1
+        return 0.99
+
+    manifest = tmp_path / "manifest_missing.csv"
+    pd.DataFrame(
+        [{"name": "broken_adapter", "adapter": str(tmp_path / "does_not_exist")}]
+    ).to_csv(manifest, index=False)
+
+    summary = tmp_path / "summary_missing.csv"
+    monkeypatch.setattr(host_metric, "score", _stub_score)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "nemotron_local_cv",
+            "--adapter-manifest",
+            str(manifest),
+            "--summary-out",
+            str(summary),
+            "--val",
+            str(val_csv),
+            "--model",
+            "fake-model-id",
+        ],
+    )
+
+    rc = cli.main()
+    assert rc == 0
+    assert called["score"] == 0
+
+    ranked = pd.read_csv(summary)
+    assert ranked["status"].tolist() == ["missing"]
+    assert "invalid adapter path" in ranked.loc[0, "error"]
+
+    out = capsys.readouterr().out
+    assert "skipped: invalid adapter path" in out
