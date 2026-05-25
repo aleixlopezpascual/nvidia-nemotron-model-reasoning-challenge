@@ -238,3 +238,50 @@ def test_cli_batch_manifest_writes_ranked_summary(tmp_path, monkeypatch, capsys,
 
     out = capsys.readouterr().out
     assert "ranked adapters" in out
+
+
+def test_cli_batch_manifest_resolves_nested_adapter_path(
+    tmp_path, monkeypatch, capsys, val_csv
+):
+    nested = tmp_path / "models" / "candidate_a" / "adapter" / "final"
+    nested.mkdir(parents=True)
+    (nested / "adapter_config.json").write_text("{}")
+    (nested / "adapter_model.safetensors").write_text("fake")
+
+    def _stub_score(*args, **kwargs):
+        submission = kwargs.get("submission", args[1] if len(args) > 1 else None)
+        adapter = submission["prediction"].iloc[0]
+        assert adapter == str(nested)
+        return 0.77
+
+    manifest = tmp_path / "manifest_nested.csv"
+    pd.DataFrame(
+        [{"name": "candidate_a", "adapter": str(tmp_path / "models" / "candidate_a")}]
+    ).to_csv(manifest, index=False)
+
+    summary = tmp_path / "summary_nested.csv"
+    monkeypatch.setattr(host_metric, "score", _stub_score)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "nemotron_local_cv",
+            "--adapter-manifest",
+            str(manifest),
+            "--summary-out",
+            str(summary),
+            "--val",
+            str(val_csv),
+            "--model",
+            "fake-model-id",
+        ],
+    )
+
+    rc = cli.main()
+    assert rc == 0
+    ranked = pd.read_csv(summary)
+    assert ranked["overall_accuracy"].tolist() == pytest.approx([0.77])
+
+    out = capsys.readouterr().out
+    assert "resolved adapter path:" in out

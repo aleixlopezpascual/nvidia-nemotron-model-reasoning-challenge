@@ -42,6 +42,38 @@ def _validate_val_df(val_df: pd.DataFrame) -> None:
         sys.exit(f"val CSV is missing columns: {missing}")
 
 
+def _is_adapter_dir(path: Path) -> bool:
+    return (path / "adapter_config.json").is_file() and (
+        path / "adapter_model.safetensors"
+    ).is_file()
+
+
+def _resolve_adapter_path(adapter_path: str) -> str:
+    """Resolve adapter root if manifest points above the actual adapter files."""
+    root = Path(adapter_path)
+    if _is_adapter_dir(root):
+        return str(root)
+    if not root.exists() or not root.is_dir():
+        return adapter_path
+
+    candidates: list[Path] = []
+    for cfg in root.glob("**/adapter_config.json"):
+        parent = cfg.parent
+        if _is_adapter_dir(parent):
+            candidates.append(parent)
+
+    if not candidates:
+        return adapter_path
+    if len(candidates) == 1:
+        return str(candidates[0])
+
+    # Prefer common Kaggle output layout, then the shallowest match.
+    for cand in candidates:
+        if cand.parts[-2:] == ("adapter", "final"):
+            return str(cand)
+    return str(min(candidates, key=lambda p: len(p.parts)))
+
+
 def _evaluate_adapter(
     *,
     val_df: pd.DataFrame,
@@ -147,9 +179,12 @@ def main() -> int:
         host_metric.configure(model_path=args.model, data_path=tmp_path)
 
         if args.adapter is not None:
+            resolved_adapter = _resolve_adapter_path(args.adapter)
+            if resolved_adapter != args.adapter:
+                print(f"resolved adapter path: {resolved_adapter}")
             accuracy, per_label, merged = _evaluate_adapter(
                 val_df=val_df,
-                adapter_path=args.adapter,
+                adapter_path=resolved_adapter,
                 max_lora_rank=args.max_lora_rank,
                 max_tokens=args.max_tokens,
                 top_p=args.top_p,
@@ -191,8 +226,10 @@ def main() -> int:
         total = len(manifest_df)
         for idx, item in enumerate(manifest_df.itertuples(index=False), 1):
             adapter_name = str(item.name)
-            adapter_path = str(item.adapter)
+            adapter_path = _resolve_adapter_path(str(item.adapter))
             print(f"\n[{idx}/{total}] evaluating {adapter_name}")
+            if adapter_path != str(item.adapter):
+                print(f"    resolved adapter path: {adapter_path}")
 
             try:
                 accuracy, per_label, merged = _evaluate_adapter(
