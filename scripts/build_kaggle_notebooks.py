@@ -26,6 +26,7 @@ BASE_MODEL_HANDLE = "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default/1"
 BASE_MODEL_KAGGLEHUB = "metric/nemotron-3-nano-30b-a3b-bf16/transformers/default"
 
 TRIAGE_MODEL_SOURCES = [
+    # --- Phase 1 (previously evaluated) ---
     "kienngx/nemotron-nano-30b-trained/triton/tinker-adapter/1",
     "huikang/nemotron-adapter/Transformers/default/20",
     "kienngx/nemotron-nano-30b-trained/triton/5e-5/1",
@@ -33,6 +34,17 @@ TRIAGE_MODEL_SOURCES = [
     "kienngx/nemotron-nano-30b-trained/triton/1e-5-batch-2-workers-8/1",
     "kienngx/nemotron-nano-30b-trained/triton/batch2-lr1e-workers8/1",
     "kienngx/nemotron-nano-30b-trained/triton/grad-accum1-workers8-maxlen-4096-lr1e-5/1",
+    # --- Phase 3 (unevaluated — Kh0a at 0.87, huikang v21-v27) ---
+    "kienngx/nemotron-nano-30b-trained/triton/9500s-batch1-lr1e-4/1",
+    "kienngx/nemotron-nano-30b-trained/triton/cot-labels-3000samples/1",
+    "kienngx/nemotron-nano-30b-trained/triton/1200samples-cot-1e-5/1",
+    "kienngx/nemotron-nano-30b-trained/triton/1200samples-cot-5e-5/1",
+    "kienngx/nemotron-nano-30b-trained/triton/2400-1e-4_lr-all_linear-packingfalse/1",
+    "kienngx/nemotron-nano-30b-trained/triton/1800s-32/1",
+    "kienngx/nemotron-nano-30b-trained/triton/600-samples-packing-false/1",
+    "huikang/nemotron-adapter/Transformers/default/27",
+    "huikang/nemotron-adapter/Transformers/default/25",
+    "huikang/nemotron-adapter/Transformers/default/22",
 ]
 
 
