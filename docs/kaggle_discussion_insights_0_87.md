@@ -1,10 +1,19 @@
 # Kaggle Discussion Insights for 0.87 (No-Train Track)
 
-Date: 2026-05-20  
-Source scan: competition discussions (124 topics scanned, 30 relevant by keyword)
+**Last updated: 2026-05-25**
 
-## Why this note exists
-Capture the useful signal from Kaggle discussions so future sessions do not repeat noisy exploration.
+---
+
+## Current Leaderboard (2026-05-25)
+
+| Rank | Team | Score |
+|---|---|---|
+| 1-7 | Y\|M\|F, Researcher 7919, Lora is all you need, Kh0a, fate, JK-Piece, Surya milenial | **0.87** |
+| 8+ | Multiple teams including us | **0.86** |
+
+**Key**: Kh0a = kienngx on Kaggle. They publish adapters publicly. Their newer variants (9500s-batch1-lr1e-4, cot-labels-3000samples) are untested by us and may be behind their 0.87 score.
+
+---
 
 ## High-confidence takeaways
 
