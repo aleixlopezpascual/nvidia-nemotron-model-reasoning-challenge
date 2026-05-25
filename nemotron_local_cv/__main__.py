@@ -74,6 +74,23 @@ def _resolve_adapter_path(adapter_path: str) -> str:
     return str(min(candidates, key=lambda p: len(p.parts)))
 
 
+def _validate_adapter_path(adapter_path: str) -> str:
+    """Return empty string when valid, otherwise a human-readable error."""
+    path = Path(adapter_path)
+    if not path.exists():
+        return "adapter path not found"
+    if not path.is_dir():
+        return "adapter path is not a directory"
+    missing: list[str] = []
+    if not (path / "adapter_config.json").is_file():
+        missing.append("adapter_config.json")
+    if not (path / "adapter_model.safetensors").is_file():
+        missing.append("adapter_model.safetensors")
+    if missing:
+        return f"missing files: {', '.join(missing)}"
+    return ""
+
+
 def _evaluate_adapter(
     *,
     val_df: pd.DataFrame,
@@ -182,6 +199,12 @@ def main() -> int:
             resolved_adapter = _resolve_adapter_path(args.adapter)
             if resolved_adapter != args.adapter:
                 print(f"resolved adapter path: {resolved_adapter}")
+            path_error = _validate_adapter_path(resolved_adapter)
+            if path_error:
+                sys.exit(
+                    f"invalid adapter path '{resolved_adapter}' "
+                    f"(from '{args.adapter}'): {path_error}"
+                )
             accuracy, per_label, merged = _evaluate_adapter(
                 val_df=val_df,
                 adapter_path=resolved_adapter,
@@ -225,11 +248,32 @@ def main() -> int:
 
         total = len(manifest_df)
         for idx, item in enumerate(manifest_df.itertuples(index=False), 1):
+            original_adapter = str(item.adapter)
             adapter_name = str(item.name)
-            adapter_path = _resolve_adapter_path(str(item.adapter))
+            adapter_path = _resolve_adapter_path(original_adapter)
             print(f"\n[{idx}/{total}] evaluating {adapter_name}")
-            if adapter_path != str(item.adapter):
+            if adapter_path != original_adapter:
                 print(f"    resolved adapter path: {adapter_path}")
+            path_error = _validate_adapter_path(adapter_path)
+            if path_error:
+                summary_rows.append(
+                    {
+                        "name": adapter_name,
+                        "adapter": adapter_path,
+                        "overall_accuracy": float("nan"),
+                        "status": "missing",
+                        "error": (
+                            f"invalid adapter path '{adapter_path}' "
+                            f"(from '{original_adapter}'): {path_error}"
+                        ),
+                    }
+                )
+                print(
+                    "    skipped: "
+                    f"invalid adapter path '{adapter_path}' "
+                    f"(from '{original_adapter}'): {path_error}"
+                )
+                continue
 
             try:
                 accuracy, per_label, merged = _evaluate_adapter(
