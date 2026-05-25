@@ -1,81 +1,81 @@
-# Next Steps to Reach 0.87 (No-Train First)
+# Next Steps to Reach 0.87
 
-Current state:
-- Best confirmed public score: **0.86**
-- Best no-train merge so far: **0.86** (tie, not improvement)
-- Constraint: prioritize **no retraining** due compute limits
+## Current State (2026-05-25)
 
-If training resources are available, follow `docs/vertex_training_workflow.md` for the Vertex-first path.
+| Item | Value |
+|---|---|
+| Best confirmed public score | **0.86** |
+| LB teams at 0.87 | **7** (including Kh0a/kienngx, huikang, fate, JK-Piece, Lora-is-all-you-need, Researcher-7919, Y\|M\|F) |
+| Phase 2 merge search | **Closed** — all 8 variants scored 0.84–0.86, none exceeded baseline |
+| Untried public adapters | **10 new adapters** (kienngx new variants + huikang v21–v27) |
 
-## Goal
-Get a reliable +0.01 lift (0.86 -> 0.87) with the smallest-risk sequence.
+> **Key finding (2026-05-25):** Kh0a (kienngx) is now at **0.87** on the LB and has published many new adapter variants since our last scan. huikang also has v21–v27 (we only used v20). These are the highest-priority candidates to evaluate **before starting any retraining**.
 
-## Training fallback recipe (if no-train plateaus)
-If no-train exploration stalls, use a two-stage training fallback:
-1. **Continuation SFT first** (target weak category behavior and answer stability).
-2. **Optional tiny GRPO second** (quality polish only after SFT is stable).
+---
 
-Notes:
-- Do not replace SFT with GRPO as the first stage.
-- GRPO is higher variance under sparse-reward scoring; keep it short and compare strictly against the SFT checkpoint.
-- On smaller GPUs (like L4), prioritize SFT and treat GRPO as experimental.
+## Phase 3 — Untried community adapter evaluation (IMMEDIATE priority)
 
-## Phase 1 — Finish expanded candidate sweep (individual adapters)
-1. Run latest `aleixlopez/nemotron-local-cv` (already pushed with expanded candidates).
-2. Pull outputs and rank by:
-   - overall accuracy (`adapter_eval_summary.csv`)
-   - per-label winners (`adapter_eval_summary_per_label.csv`)
-3. Keep shortlist of only adapters that:
-   - tie or beat top overall score, and
-   - improve weak labels (especially `equation_transformation`).
+### New candidates to evaluate (added to `data/adapter_candidates.csv`)
 
-Decision gate:
-- If any single adapter beats 0.86 in live LB, promote it as new base.
+| Name | Path | Rationale |
+|---|---|---|
+| `kienngx_9500s_batch1_lr1e-4` | `.../9500s-batch1-lr1e-4/1` | Full 9500-sample corpus — likely Kh0a's 0.87 adapter |
+| `kienngx_cot_labels_3000samples` | `.../cot-labels-3000samples/1` | CoT-labels corpus; significant sample jump |
+| `kienngx_1200samples_cot_1e-5` | `.../1200samples-cot-1e-5/1` | CoT training variant |
+| `kienngx_1200samples_cot_5e-5` | `.../1200samples-cot-5e-5/1` | Higher LR CoT variant |
+| `kienngx_2400_lr1e-4_all_linear` | `.../2400-1e-4_lr-all_linear-packingfalse/1` | More data, all-linear target modules |
+| `kienngx_1800s_rank32` | `.../1800s-32/1` | Rank-32 1800-sample run |
+| `kienngx_600_packing_false` | `.../600-samples-packing-false/1` | Packing-off ablation |
+| `huikang_v27` | `huikang/nemotron-adapter/.../27` | Latest huikang (7 versions newer than what we used) |
+| `huikang_v25` | `huikang/nemotron-adapter/.../25` | Mid-point version |
+| `huikang_v22` | `huikang/nemotron-adapter/.../22` | Earlier new version |
 
-## Phase 2 — Minimal-risk soups on top candidates
-For top 2 candidate bases from Phase 1:
-1. Create tiny-weight merges (`w = 0.03, 0.05, 0.08`) with 1 donor at a time.
-2. Start with full-tensor interpolation only.
-3. Evaluate all variants in one CV batch.
+### Workflow
 
-Keep only variants that improve both:
-- overall CV score, and
-- weak-label slice without large regressions.
+1. Update `data/adapter_candidates.csv` ✅ (done)
+2. Push new code snapshot: `uv run python scripts/sync_code_to_kaggle.py -m "add new adapter candidates"`
+3. Rebuild + push CV kernel: `uv run python scripts/build_kaggle_notebooks.py && uv run kaggle kernels push -p kaggle/cv_kernel`
+4. Run CV on all candidates. Focus on: `kienngx_9500s_batch1_lr1e-4` and `huikang_v27` first.
+5. Any single adapter scoring > 0.86 CV → submit directly for LB confirmation.
 
-## Phase 3 — Two-donor conservative soups
-If Phase 2 gives signal:
-1. Try 2-donor soups with small total donor mass.
-2. Example weight patterns:
-   - base 0.92 + donorA 0.05 + donorB 0.03
-   - base 0.90 + donorA 0.05 + donorB 0.05
-3. Re-run CV and compare against best Phase 2.
+---
 
-Stop rule:
-- If no measurable CV gain over best single-donor soup, stop this branch.
+## Phase 4 — Merge with new bases (if Phase 3 adapters don't solo-hit 0.87)
 
-## Phase 4 — Submit discipline
-Use submission slots only for strong candidates:
-1. Candidate must beat/tie best CV overall.
-2. Candidate must improve at least one weak label.
-3. Candidate must pass packaging checks (`adapter_config.json` + `adapter_model.safetensors` at zip root).
+If `kienngx_9500s_batch1_lr1e-4` or another new adapter scores 0.86 CV but not 0.87 LB:
+- Attempt mini-soups with the best new adapter as base + tinker-adapter as donor (or vice versa)
+- Keep donor weight ≤ 0.08 to stay conservative
+- Evaluate 3 soup variants max; submit only if CV ≥ 0.87
 
-Submit at most 1–2 candidates/day to preserve quota.
+---
 
-## Operational checklist (each iteration)
-1. Update candidate/experiment CSV.
-2. Regenerate Kaggle notebooks:
-   - `uv run python scripts/build_kaggle_notebooks.py`
-3. Push CV kernel:
-   - `uv run kaggle kernels push -p kaggle/cv_kernel`
-4. Wait for run completion and download outputs.
-5. Promote only winning candidates to submit-packager notebook.
+## Phase 5 — Targeted continuation SFT (last resort, requires GPU)
 
-## When to stop no-train exploration
-Stop no-train search if all are true:
-- 2+ full sweep cycles produce no lift above 0.86,
-- tiny soups and two-donor soups also plateau,
-- per-label gains fail to transfer to overall improvement.
+If Phase 3 + 4 both plateau at 0.86:
 
-At that point, either:
-- accept 0.86 as ceiling under no-train constraints, or
-- run one targeted small retrain cycle only on weak categories.
+The winner (huikang) confirmed **0.87 requires bit_manipulation improvement** — it goes from 85.1% → 88-90%. Strategy:
+1. Train continuation SFT on `bit_manipulation` traces only (~1 epoch)
+2. CoT redesign to reduce low-confidence tokens (check `min_logprob` per trace)
+3. All other categories should remain unchanged (only fine-tune on bit_manipulation corpus)
+
+This requires a Kaggle Blackwell GPU session (~1-2hr training). See `docs/kaggle_workflow.md`.
+
+---
+
+## Submit discipline
+- Never submit without local-CV first
+- Submit at most 1–2 candidates/day to preserve quota
+- Submission must improve both: overall CV AND at least one weak label
+- Packaging: `adapter_config.json` + `adapter_model.safetensors` at zip root
+
+---
+
+## When to stop
+- If Phase 3 finds a ≥0.87 standalone adapter → submit, done
+- If Phase 3+4 both plateau at 0.86 → accept 0.86 or run Phase 5
+- Competition deadline: **2026-06-15** (~3 weeks remaining
+
+## Historical context
+- Phase 1 (individual adapter sweep, May 17-20): evaluated 7 adapters; best = 0.86 (kienngx tinker-adapter)
+- Phase 2 (merge search, May 20-25): 8 merge variants; all scored 0.84–0.86; none exceeded 0.86
+- See `docs/archive/vertex_ai_setup.md` for the dead-end Vertex AI path
