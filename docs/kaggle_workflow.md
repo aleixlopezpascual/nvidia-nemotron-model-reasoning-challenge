@@ -104,6 +104,19 @@ For local/offline packaging from an existing adapter directory, use:
 uv run python scripts/package_submission.py --adapter-dir /path/to/adapter --output submission.zip
 ```
 
+### 6. Print a compact state table (recommended)
+
+For a quick "what is running / what failed / what to do next" snapshot:
+
+```bash
+uv run python scripts/kaggle_state_table.py
+```
+
+This prints:
+- latest submission summary (latest + best public score)
+- per-kernel status for `nemotron-eval-merge-1..8`
+- a suggested next action per kernel (`wait`, `download/submit`, `open logs`)
+
 ---
 
 ## Blackwell gotchas (load-bearing)
