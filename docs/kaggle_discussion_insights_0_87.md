@@ -1,17 +1,17 @@
 # Kaggle Discussion Insights for 0.87 (No-Train Track)
 
-**Last updated: 2026-05-25**
+**Last updated: 2026-05-27**
 
 ---
 
-## Current Leaderboard (2026-05-25)
+## Current Leaderboard Context
 
 | Rank | Team | Score |
 |---|---|---|
 | 1-7 | Y\|M\|F, Researcher 7919, Lora is all you need, Kh0a, fate, JK-Piece, Surya milenial | **0.87** |
 | 8+ | Multiple teams including us | **0.86** |
 
-**Key**: Kh0a = kienngx on Kaggle. They publish adapters publicly. Their newer variants (9500s-batch1-lr1e-4, cot-labels-3000samples) are untested by us and may be behind their 0.87 score.
+**Current project reality**: our best confirmed result remains **0.86**. A later no-train direct submission (`53064353`) scored **0.85**.
 
 ---
 
@@ -37,13 +37,13 @@
 - Hosts confirmed eval prompt is fixed/hidden to reduce reverse engineering.
 - This reinforces our current strategy: adapter/model selection and careful no-train merging, not prompt tricks.
 
-## What this means for our strategy
+## What this means for our strategy (updated)
 
-Given no-training constraints, the best remaining path is:
-1. **Broaden candidate adapter mining** (individual public adapters first).
-2. **Apply strict CV gating** (overall + weak-label improvement).
-3. **Run conservative soups only on top bases** (tiny donor weights).
-4. **Use submission slots sparingly** (1–2 high-confidence candidates).
+Given no additional training resources:
+1. **Preserve 0.86 baseline** as the best reproducible target.
+2. **Stop speculative no-train sweeps** that do not expose real submission artifacts.
+3. **Submit only evidence-backed candidates** (clear CV/LB upside, valid packaged adapter).
+4. **Document blocked adapters clearly** (mount path inaccessible / artifact not exposed).
 
 ## Practical do / don’t
 
@@ -56,6 +56,12 @@ Given no-training constraints, the best remaining path is:
 - Chase unverified “0.87 claims” without reproducible artifacts.
 - Spend submission quota on marginal CV ties.
 - Assume packaging/layout tweaks alone can produce +0.01.
+
+## Concrete conclusion from our run history
+
+- Theoretical 0.87 signal exists in public leaderboard narratives.
+- In our reproducible environment, no-train exploration plateaued at **0.86**.
+- Without additional compute, pushing beyond 0.86 is currently blocked by artifact accessibility and lack of trainable budget.
 
 ## Linked artifacts
 - Raw scan notes:  
