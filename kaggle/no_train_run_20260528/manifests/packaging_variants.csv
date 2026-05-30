@@ -1,0 +1,9 @@
+name,variant,zip,ok,log
+kienngx_tinker_adapter_v1,rewrite,kaggle/no_train_run_20260528/packages/kienngx_tinker_adapter_v1__rewrite.zip,1,wrote kaggle/no_train_run_20260528/packages/kienngx_tinker_adapter_v1__rewrite.zip (3118.80 MB)
+kienngx_tinker_adapter_v1,keepbase,kaggle/no_train_run_20260528/packages/kienngx_tinker_adapter_v1__keepbase.zip,1,wrote kaggle/no_train_run_20260528/packages/kienngx_tinker_adapter_v1__keepbase.zip (3118.80 MB)
+kienngx_1e5_v1,rewrite,kaggle/no_train_run_20260528/packages/kienngx_1e5_v1__rewrite.zip,1,wrote kaggle/no_train_run_20260528/packages/kienngx_1e5_v1__rewrite.zip (3082.42 MB)
+kienngx_1e5_v1,keepbase,kaggle/no_train_run_20260528/packages/kienngx_1e5_v1__keepbase.zip,1,wrote kaggle/no_train_run_20260528/packages/kienngx_1e5_v1__keepbase.zip (3082.42 MB)
+huikang_default_v27,rewrite,kaggle/no_train_run_20260528/packages/huikang_default_v27__rewrite.zip,1,wrote kaggle/no_train_run_20260528/packages/huikang_default_v27__rewrite.zip (1345.64 MB)
+huikang_default_v27,keepbase,kaggle/no_train_run_20260528/packages/huikang_default_v27__keepbase.zip,1,wrote kaggle/no_train_run_20260528/packages/huikang_default_v27__keepbase.zip (1345.64 MB)
+local_merge_tinker_plus_1e5_full_005,rewrite,kaggle/no_train_run_20260528/packages/local_merge_tinker_plus_1e5_full_005__rewrite.zip,1,wrote kaggle/no_train_run_20260528/packages/local_merge_tinker_plus_1e5_full_005__rewrite.zip (0.00 MB)
+local_merge_tinker_plus_1e5_full_005,keepbase,kaggle/no_train_run_20260528/packages/local_merge_tinker_plus_1e5_full_005__keepbase.zip,1,wrote kaggle/no_train_run_20260528/packages/local_merge_tinker_plus_1e5_full_005__keepbase.zip (0.00 MB)

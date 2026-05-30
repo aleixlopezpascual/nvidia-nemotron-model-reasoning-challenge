@@ -1,0 +1,9 @@
+name,variant,zip,pack_ok,zip_exists,flat_root_ok,rank,base_model
+kienngx_tinker_adapter_v1,rewrite,kaggle/no_train_run_20260528/packages/kienngx_tinker_adapter_v1__rewrite.zip,1,1,1,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+kienngx_tinker_adapter_v1,keepbase,kaggle/no_train_run_20260528/packages/kienngx_tinker_adapter_v1__keepbase.zip,1,1,1,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+kienngx_1e5_v1,rewrite,kaggle/no_train_run_20260528/packages/kienngx_1e5_v1__rewrite.zip,1,1,1,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+kienngx_1e5_v1,keepbase,kaggle/no_train_run_20260528/packages/kienngx_1e5_v1__keepbase.zip,1,1,1,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+huikang_default_v27,rewrite,kaggle/no_train_run_20260528/packages/huikang_default_v27__rewrite.zip,1,1,1,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+huikang_default_v27,keepbase,kaggle/no_train_run_20260528/packages/huikang_default_v27__keepbase.zip,1,1,1,32,
+local_merge_tinker_plus_1e5_full_005,rewrite,kaggle/no_train_run_20260528/packages/local_merge_tinker_plus_1e5_full_005__rewrite.zip,1,1,1,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+local_merge_tinker_plus_1e5_full_005,keepbase,kaggle/no_train_run_20260528/packages/local_merge_tinker_plus_1e5_full_005__keepbase.zip,1,1,1,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16

@@ -1,0 +1,20 @@
+name,status,error
+k1e5_plus_tnorm_full_002,ok,
+k1e5_plus_tnorm_full_005,ok,
+k1e5_plus_tnorm_full_008,ok,
+k1e5_plus_tnorm_full_010,ok,
+k1e5_plus_tnorm_mamba_005,ok,
+k1e5_plus_tnorm_mamba_010,ok,
+k1e5_plus_tnorm_attn_005,error,"ValueError: no overlapping tensors matched include_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj']"
+k1e5_plus_tnorm_attn_010,error,"ValueError: no overlapping tensors matched include_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj']"
+traw_plus_hraw_full_003,ok,
+traw_plus_hraw_full_005,ok,
+traw_plus_hraw_full_010,ok,
+tnorm_plus_hnorm_full_003,ok,
+tnorm_plus_hnorm_full_005,ok,
+tnorm_plus_hnorm_full_010,ok,
+k1e5_plus_hnorm_full_003,ok,
+k1e5_plus_hnorm_full_005,ok,
+k1e5_plus_hnorm_full_010,ok,
+k1e5_plus_hnorm_mamba_005,ok,
+k1e5_plus_hnorm_attn_005,error,"ValueError: no overlapping tensors matched include_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj']"

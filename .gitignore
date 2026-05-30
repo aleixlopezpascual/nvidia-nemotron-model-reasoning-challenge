@@ -232,3 +232,10 @@ debug_predictions_with_labels.csv
 
 # Kaggle dataset staging — rebuilt by scripts/sync_code_to_kaggle.py
 kaggle/code_dataset/
+
+# Large local Kaggle artifacts (reproducible / not suitable for git)
+kaggle/model_cache/
+kaggle/no_train_run_20260528/adapters/
+kaggle/no_train_run_20260528/merged/
+kaggle/no_train_run_20260528/packages/
+kaggle/no_train_run_20260528/.DS_Store
