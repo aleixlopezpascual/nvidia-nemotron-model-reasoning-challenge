@@ -126,9 +126,21 @@ If work resumes with compute, these are the most promising unexhausted direction
    - rejection-sampled, quality-filtered CoTs
    - low-min-logprob replay buckets rather than broad synthetic expansion
 
-3. **Focused continuation SFT:**
-   - short continuation runs on weak categories from strong baseline
-   - strict parity CV gating before any submission burn
+3. **Focused continuation SFT (most actionable next step):**
+
+   The idea: take an existing trained adapter and continue fine-tuning on cryptarithm-only traces — **no retraining from scratch**.
+
+   How it works:
+   - Load the frozen base model + existing adapter as the starting point (initialised from `adapter_model.safetensors`, not random weights)
+   - Run a short additional training pass (~100–300 steps) on cryptarithm-specific data
+   - Save the updated adapter
+
+   Practical rules to avoid regressions:
+   - Use a **low learning rate and few steps** — you are polishing, not relearning; too many steps causes catastrophic forgetting of the other puzzle categories
+   - **Mix in ~10–20% anchor examples** from other puzzle types to keep those categories stable
+   - **Gate with per-label CV** before submitting: confirm cryptarithm improved without other labels regressing
+
+   The hard constraint: this only works if you have **correct cryptarithm CoT traces to train on**. Cryptarithm has a ~8% teacher pass rate even for strong models — generating usable traces requires a very capable teacher model plus aggressive rejection sampling. Training on bad or empty traces will hurt more than help.
 
 4. **Variance-aware leaderboard protocol:**
    - repeated submissions for near-tie candidates
