@@ -1,0 +1,5 @@
+name,adapter_dir,status,r,base_model
+kienngx_tinker_adapter_v1,kaggle/model_cache/kienngx_tinker_adapter_v1,ok,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+kienngx_1e5_v1,kaggle/model_cache/kienngx_1e5_v1,ok,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+huikang_default_v27,kaggle/model_cache/huikang_default_v27,ok,32,None
+local_merge_tinker_plus_1e5_full_005,kaggle/merge_kernel_output/merged_adapters_phase2/tinker_plus_1e5_full_005,ok,32,nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
